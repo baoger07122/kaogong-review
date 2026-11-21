@@ -59,6 +59,7 @@ struct HomeView: View {
     @State private var showToast = false
     @State private var countdownNameDraft = ""
     @State private var countdownDateDraft = Date.now
+    @State private var showCountdownDeleteConfirmation = false
     @State private var todoEditorInitialDraft = HomeTodoEditorDraft()
     @State private var dailyTodoEditorInitialDraft = HomeDailyTodoEditorDraft()
     @State private var todoEditorPresentationID = UUID()
@@ -244,30 +245,24 @@ struct HomeView: View {
                 Text("暂无倒数日").font(AppTheme.bodyFont).foregroundStyle(.secondary)
             } else {
                 ForEach(countdowns.prefix(4)) { countdown in
-                    HStack(spacing: 7) {
-                        Button { beginCountdown(countdown) } label: {
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(countdown.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                                    Text(countdownDateText(countdown)).font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 4)
-                                Text(countdownRemainingText(countdown))
-                                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                                    .foregroundStyle(AppTheme.accent)
-                                    .monospacedDigit()
+                    Button { beginCountdown(countdown) } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(countdown.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                Text(countdownDateText(countdown)).font(.system(size: 10)).foregroundStyle(.secondary)
                             }
+                            Spacer(minLength: 4)
+                            Text(countdownRemainingText(countdown))
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppTheme.accent)
+                                .monospacedDigit()
                         }
-                        .buttonStyle(.plain)
-                        Button { deleteCountdown(countdown.id) } label: {
-                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("删除\(countdown.name)")
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 42)
+                        .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 42)
-                    .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -496,7 +491,8 @@ struct HomeView: View {
             title: id == nil ? "新增倒数日" : "编辑倒数日",
             canSave: !countdownNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             onClose: closeEditor,
-            onSave: saveCountdown
+            onSave: saveCountdown,
+            deleteAction: id == nil ? nil : ("删除倒数日", { showCountdownDeleteConfirmation = true })
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 NativeFieldLabel(title: "名称")
@@ -504,6 +500,16 @@ struct HomeView: View {
                 DatePicker("目标日期", selection: $countdownDateDraft, displayedComponents: .date)
                     .font(AppTheme.inputFont)
                     .environment(\.locale, Locale(identifier: "zh_CN"))
+            }
+        }
+        .alert("删除倒数日？", isPresented: $showCountdownDeleteConfirmation) {
+            Button("取消", role: .cancel) {}
+            if let id {
+                Button("删除", role: .destructive) { deleteCountdown(id) }
+            }
+        } message: {
+            if let name = countdowns.first(where: { $0.id == id })?.name {
+                Text("确定删除「\(name)」？")
             }
         }
     }
@@ -739,6 +745,7 @@ struct HomeView: View {
     }
 
     private func closeEditor() {
+        showCountdownDeleteConfirmation = false
         dailyTodoNoteTarget = nil
         dailyRuleSortMode = .inactive
         withAnimation(.easeOut(duration: 0.16)) { editor = nil }
@@ -846,8 +853,16 @@ struct HomeView: View {
     }
 
     private func deleteCountdown(_ id: String) {
-        do { try HomeRecordRepository.save(countdowns: countdowns.filter { $0.id != id }, records: records, context: modelContext) }
-        catch { saveErrorMessage = error.localizedDescription }
+        guard editor == .countdown(id) else { return }
+        do {
+            guard try HomeRecordRepository.deleteCountdown(id: id, records: records, context: modelContext) else {
+                saveErrorMessage = "这条倒数日已变更，请关闭后重新打开。"
+                return
+            }
+            closeEditor()
+        } catch {
+            saveErrorMessage = error.localizedDescription
+        }
     }
 
     private func deleteTodo(_ todo: HomeTodo) -> Bool {

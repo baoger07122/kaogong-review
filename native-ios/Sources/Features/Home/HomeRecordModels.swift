@@ -241,10 +241,16 @@ enum HomeRecordRepository {
             let value = record.jsonObject?["value"] as? [[String: Any]]
         else { return [] }
 
-        return value.compactMap { item in
-            guard let name = string(item["name"]), let date = date(item["date"]) else { return nil }
-            return HomeCountdown(id: string(item["id"]) ?? makeID(prefix: "cd"), name: name, date: date)
+        return value.enumerated().compactMap { index, item in
+            countdown(from: item, at: index)
         }
+    }
+
+    private static func countdown(from item: [String: Any], at index: Int) -> HomeCountdown? {
+        guard let name = string(item["name"]), let date = date(item["date"]) else { return nil }
+        let storedID = string(item["id"]) ?? ""
+        let id = storedID.isEmpty ? "legacy-countdown|\(index)|\(date.timeIntervalSince1970)|\(name)" : storedID
+        return HomeCountdown(id: id, name: name, date: date)
     }
 
     static func save(todo: HomeTodo, records: [StoredRecord], context: ModelContext) throws {
@@ -602,6 +608,31 @@ enum HomeRecordRepository {
         let value = countdowns.map { ["id": $0.id, "name": $0.name, "date": dayString($0.date)] }
         let object: [String: Any] = ["key": "legacy.countdown", "value": value]
         try upsert(collection: "keyvalue", id: "legacy.countdown", object: object, createdAt: nil, updatedAt: Date(), existing: record, context: context)
+    }
+
+    static func deleteCountdown(id: String, records: [StoredRecord], context: ModelContext) throws -> Bool {
+        guard let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == "legacy.countdown" }),
+              var object = record.jsonObject, var value = object["value"] as? [[String: Any]] else { return false }
+
+        let matchingIndices = value.indices.filter { countdown(from: value[$0], at: $0)?.id == id }
+        guard matchingIndices.count == 1, let index = matchingIndices.first else { return false }
+
+        let previousPayload = record.payload
+        let previousIndexPayload = record.indexPayload
+        let previousUpdatedAt = record.updatedAt
+        value.remove(at: index)
+        object["value"] = value
+        do {
+            try upsert(
+                collection: record.collection, id: record.recordID, object: object,
+                createdAt: nil, updatedAt: Date(), existing: record, context: context
+            )
+        } catch {
+            record.replacePayload(previousPayload, indexPayload: previousIndexPayload)
+            record.updatedAt = previousUpdatedAt
+            throw error
+        }
+        return true
     }
 
     static func remove(collection: String, id: String, records: [StoredRecord], context: ModelContext) throws {

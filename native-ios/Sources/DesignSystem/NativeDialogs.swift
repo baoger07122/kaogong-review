@@ -53,6 +53,7 @@ struct NativeEditorDialog<Content: View>: View {
     let content: Content
     private let preferredSize: CGSize?
     private let spacing: CGFloat
+    private let deleteAction: (title: String, request: () -> Void)?
 
     init(
         title: String,
@@ -62,6 +63,7 @@ struct NativeEditorDialog<Content: View>: View {
         onSave: @escaping () -> Void,
         preferredSize: CGSize? = nil,
         spacing: CGFloat = 16,
+        deleteAction: (title: String, request: () -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -71,6 +73,7 @@ struct NativeEditorDialog<Content: View>: View {
         self.onSave = onSave
         self.preferredSize = preferredSize
         self.spacing = spacing
+        self.deleteAction = deleteAction
         self.content = content()
     }
 
@@ -88,6 +91,21 @@ struct NativeEditorDialog<Content: View>: View {
                             .background(Color.primary.opacity(0.07), in: Circle())
                     }
                     .buttonStyle(.plain)
+                    if let deleteAction {
+                        Menu {
+                            Button(role: .destructive, action: deleteAction.request) {
+                                Label(deleteAction.title, systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("更多操作")
+                    }
                 }
 
                 content
