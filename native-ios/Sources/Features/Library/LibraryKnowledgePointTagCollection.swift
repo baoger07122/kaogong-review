@@ -5,6 +5,7 @@ struct LibraryKnowledgePointTagItem: Identifiable, Hashable {
     let reference: LibraryKnowledgePointReference
     let title: String
     var isSelected: Bool
+    var allowsManagement = true
     var id: String { reference.id }
 }
 
@@ -68,8 +69,12 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
     }
 
     func updateUIView(_ view: KnowledgePointCollectionView, context: Context) {
+        let previous = context.coordinator.parent
         context.coordinator.parent = self
-        if context.coordinator.items != items {
+        if context.coordinator.items != items
+            || previous.allowsManagementActions != allowsManagementActions
+            || previous.allowsReordering != allowsReordering
+            || (previous.onMoveGroup == nil) != (onMoveGroup == nil) {
             context.coordinator.items = items
             (view.collectionViewLayout as? KnowledgePointTagCollectionLayout)?.update(items: items)
             view.reloadData()
@@ -129,7 +134,7 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: KnowledgePointTagCell.reuseID, for: indexPath)
             guard items.indices.contains(indexPath.item), let tagCell = cell as? KnowledgePointTagCell else { return cell }
             let item = items[indexPath.item]
-            tagCell.configure(item) { [weak self] reference in
+            tagCell.configure(item, menu: managementMenu(for: item)) { [weak self] reference in
                 guard let self,
                       let current = self.items.first(where: { $0.reference == reference }) else { return }
                 self.parent.onToggle(current.reference)
@@ -145,35 +150,27 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
             return
         }
 
-        func collectionView(
-            _ collectionView: UICollectionView,
-            contextMenuConfigurationForItemAt indexPath: IndexPath,
-            point: CGPoint
-        ) -> UIContextMenuConfiguration? {
-            guard parent.allowsManagementActions, items.indices.contains(indexPath.item) else { return nil }
-            let item = items[indexPath.item]
-            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-                guard let self else { return UIMenu(children: []) }
-                var actions = [
-                    UIAction(title: "重命名", image: UIImage(systemName: "pencil")) { [weak self] _ in
-                        self?.parent.onRename(item.reference)
-                    }
-                ]
-                if self.parent.onMoveGroup != nil {
-                    actions.append(UIAction(title: "修改分组", image: UIImage(systemName: "folder")) { [weak self] _ in
-                        self?.parent.onMoveGroup?(item.reference)
-                    })
+        private func managementMenu(for item: LibraryKnowledgePointTagItem) -> UIMenu? {
+            guard parent.allowsManagementActions, item.allowsManagement else { return nil }
+            var actions = [
+                UIAction(title: "重命名", image: UIImage(systemName: "pencil")) { [weak self] _ in
+                    self?.parent.onRename(item.reference)
                 }
-                if self.parent.allowsReordering {
-                    actions.append(UIAction(title: "调整顺序", image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
-                        self?.parent.onAdjustOrder(item.reference)
-                    })
-                }
-                actions.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                    self?.parent.onDelete(item.reference)
+            ]
+            if parent.onMoveGroup != nil {
+                actions.append(UIAction(title: "修改分组", image: UIImage(systemName: "folder")) { [weak self] _ in
+                    self?.parent.onMoveGroup?(item.reference)
                 })
-                return UIMenu(children: actions)
             }
+            if parent.allowsReordering {
+                actions.append(UIAction(title: "调整顺序", image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
+                    self?.parent.onAdjustOrder(item.reference)
+                })
+            }
+            actions.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                self?.parent.onDelete(item.reference)
+            })
+            return UIMenu(children: actions)
         }
 
     }
@@ -269,6 +266,7 @@ private final class KnowledgePointTagCell: UICollectionViewCell {
         super.init(frame: frame)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.adjustsImageWhenHighlighted = false
+        button.showsMenuAsPrimaryAction = false
         button.clipsToBounds = true
         button.layer.cornerRadius = 6
         button.addTarget(self, action: #selector(activate), for: .touchUpInside)
@@ -307,9 +305,10 @@ private final class KnowledgePointTagCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         onActivate = nil
+        button.menu = nil
     }
 
-    func configure(_ item: LibraryKnowledgePointTagItem, onActivate: @escaping (LibraryKnowledgePointReference) -> Void) {
+    func configure(_ item: LibraryKnowledgePointTagItem, menu: UIMenu?, onActivate: @escaping (LibraryKnowledgePointReference) -> Void) {
         titleLabel.text = item.title
         button.backgroundColor = item.isSelected
             ? UIColor(AppTheme.accent.opacity(0.10))
@@ -318,6 +317,7 @@ private final class KnowledgePointTagCell: UICollectionViewCell {
         checkmarkView.tintColor = UIColor(AppTheme.accent)
         checkmarkView.alpha = item.isSelected ? 1 : 0
         button.isSelected = item.isSelected
+        button.menu = menu
         button.accessibilityLabel = item.title
         button.accessibilityValue = item.isSelected ? "已选" : "未选"
         button.accessibilityIdentifier = "knowledge-point-tag-\(item.reference.id)"

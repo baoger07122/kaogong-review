@@ -150,7 +150,6 @@ struct LibraryRecordDetailView: View {
     }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
-    private let errorEntryPreview: LibraryErrorEntryPreview?
     let onEdit: (String) -> Void
     var onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil
     let onDelete: (String) -> Void
@@ -216,7 +215,6 @@ struct LibraryRecordDetailView: View {
         scope: LibraryScope,
         record: StoredRecord,
         preparedErrorDetail: LibraryPreparedErrorDetail? = nil,
-        errorEntryPreview: LibraryErrorEntryPreview? = nil,
         onEdit: @escaping (String) -> Void,
         onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
@@ -227,7 +225,6 @@ struct LibraryRecordDetailView: View {
     ) {
         self.kind = kind
         self.scope = scope
-        self.errorEntryPreview = errorEntryPreview
         self.onEdit = onEdit
         self.onEditPrepared = onEditPrepared
         self.onDelete = onDelete
@@ -269,7 +266,7 @@ struct LibraryRecordDetailView: View {
             }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
             .task(id: activePayloadLoadTrigger) {
-                guard isWaitingForQuestionContent else { return }
+                guard isWaitingForQuestionContent, !displaysPreviousQuestionSnapshot else { return }
                 let trigger = activePayloadLoadTrigger
                 try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled,
@@ -439,9 +436,10 @@ struct LibraryRecordDetailView: View {
     }
 
     private var detailNavigationTitle: String {
-        SubjectModuleTitle.errorDetailTitle(
-            recordModule: record?.module,
-            payloadModule: object["module"] as? String,
+        let payloadModule = object["module"] as? String
+        return SubjectModuleTitle.errorDetailTitle(
+            recordModule: displaysPreviousQuestionSnapshot ? payloadModule ?? record?.module : record?.module,
+            payloadModule: payloadModule,
             questionBankModule: displayQuestionBankContext?.typeMapping.module
         )
     }
@@ -504,7 +502,8 @@ struct LibraryRecordDetailView: View {
                 isPagingEnabled: !doodleSession.isPresented
                     && !noteSession.isEditing
                     && !noteSession.hasPendingChanges
-                    && !hasActiveQuestionTextSelection,
+                    && !hasActiveQuestionTextSelection
+                    && !displaysPreviousQuestionSnapshot,
                 currentContentVersion: detailPageVersion
             ) { recordID in
                 if recordID == activeRecordKeyBinding.wrappedValue {
@@ -539,6 +538,8 @@ struct LibraryRecordDetailView: View {
                 }
                 detailModal
             }
+            .disabled(displaysPreviousQuestionSnapshot)
+            .allowsHitTesting(!displaysPreviousQuestionSnapshot)
             .onAppear {
                 if !doodleSession.isPresented || !doodleSession.isSplitDrawingSession {
                     splitDoodleLayoutDirection = layoutDirection
@@ -701,12 +702,8 @@ struct LibraryRecordDetailView: View {
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                } else if isWaitingForQuestionContent {
-                    if let entryQuestionText {
-                        questionTextView(entryQuestionText)
-                    } else {
-                        questionLoadingPlaceholder
-                    }
+                } else if isWaitingForQuestionContent && !displaysPreviousQuestionSnapshot {
+                    questionLoadingPlaceholder
                 } else {
                     if kind == .errors {
                         errorClassificationAndMasteryRow
@@ -939,7 +936,8 @@ struct LibraryRecordDetailView: View {
                 } else {
                     questionActionsMenu
                         .opacity(isQuestionActionsMenuVisible ? 1 : 0)
-                        .disabled(!isQuestionActionsMenuVisible || pendingEditorRequestID != nil)
+                        .disabled(!isQuestionActionsMenuVisible || pendingEditorRequestID != nil
+                            || displaysPreviousQuestionSnapshot)
                         .accessibilityHidden(!isQuestionActionsMenuVisible)
                 }
             }
@@ -1343,14 +1341,6 @@ struct LibraryRecordDetailView: View {
             let text = cleanMultiline(rawQuestion)
             if !text.isEmpty { questionTextView(text) }
         }
-    }
-
-    private var entryQuestionText: String? {
-        guard let errorEntryPreview, let record,
-              errorEntryPreview.recordID == record.recordID,
-              errorEntryPreview.updatedAt == record.updatedAt else { return nil }
-        let text = cleanMultiline(errorEntryPreview.rawQuestion)
-        return text.isEmpty ? nil : text
     }
 
     private func questionTextView(_ text: String) -> some View {
@@ -1918,7 +1908,7 @@ struct LibraryRecordDetailView: View {
         kind == .errors
             && redoActionsAvailable
             && redoActionsRecordID == activeRecordID
-            && !isPayloadLoading
+            && (!isPayloadLoading || displaysPreviousQuestionSnapshot)
             && displayQuestionBankContext == nil
     }
 
@@ -2480,19 +2470,29 @@ struct LibraryRecordDetailView: View {
         return !key.isEmpty && key != resolvedLinkedQuestionKey
     }
 
+    private var displaysPreviousQuestionSnapshot: Bool {
+        guard kind == .errors, let activePayloadKey, let loadedPayloadKey else { return false }
+        return isPayloadLoading && loadedPayloadKey.recordID == activePayloadKey.recordID
+    }
+
     private var linkedQuestionContextKey: String {
-        guard !isPayloadLoading, !payloadDecodeFailed, kind == .errors,
-              let paperID = object["questionBankPaperID"] as? String,
-              let questionID = object["questionBankQuestionID"] as? String else { return "" }
-        let question = (object["question"] as? String ?? object["title"] as? String ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let options = object["options"] as? [String] ?? []
-        let imageReferences = (object["images"] as? [String] ?? [])
-            + (object["optionImages"] as? [String] ?? [])
+        guard !isPayloadLoading, !payloadDecodeFailed else { return "" }
+        return linkedQuestionContextKey(for: object)
+    }
+
+    private func linkedQuestionContextKey(for payload: [String: Any]) -> String {
+        guard kind == .errors,
+              let paperID = payload["questionBankPaperID"] as? String,
+              let questionID = payload["questionBankQuestionID"] as? String else { return "" }
+        let rawQuestion = (payload["question"] as? String) ?? (payload["title"] as? String) ?? ""
+        let question = rawQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let options = payload["options"] as? [String] ?? []
+        let imageReferences = (payload["images"] as? [String] ?? [])
+            + (payload["optionImages"] as? [String] ?? [])
         let hasLinkedImageReference = imageReferences.contains { value in
             !value.isEmpty && value.utf8.prefix(256).count < 256 && !value.contains("://") && !value.hasPrefix("/")
         }
-        let materialID = (object["materialID"] as? String ?? "")
+        let materialID = (payload["materialID"] as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard question.isEmpty || options.isEmpty || hasLinkedImageReference || !materialID.isEmpty else {
             return ""
@@ -2502,8 +2502,17 @@ struct LibraryRecordDetailView: View {
 
     @MainActor
     private func loadLinkedQuestionContext() {
+        guard !displaysPreviousQuestionSnapshot else { return }
         let contextKey = linkedQuestionContextKey
-        guard !contextKey.isEmpty else {
+        guard contextKey != resolvedLinkedQuestionKey else { return }
+        loadLinkedQuestionContext(for: object, contextKey: contextKey)
+    }
+
+    @MainActor
+    private func loadLinkedQuestionContext(for payload: [String: Any], contextKey: String) {
+        guard !contextKey.isEmpty,
+              let paperID = payload["questionBankPaperID"] as? String,
+              let questionID = payload["questionBankQuestionID"] as? String else {
             if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
             linkedQuestionBankContext = nil
             resolvedLinkedQuestionKey = ""
@@ -2518,20 +2527,10 @@ struct LibraryRecordDetailView: View {
         defer {
             LibraryPerformanceLog.mark("detail.linked-context.end", since: startedAt)
         }
-        guard kind == .errors,
-              let paperID = object["questionBankPaperID"] as? String,
-              let questionID = object["questionBankQuestionID"] as? String else {
-            if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
-            linkedQuestionBankContext = nil
-            resolvedLinkedQuestionKey = contextKey
-            resolvedLinkedQuestionRecordID = ""
-            resolvedLinkedQuestionObject = [:]
-            return
-        }
         let context = QuestionBankQuestionAnalysisContext.linkedErrorContext(
             paperID: paperID,
             questionID: questionID,
-            selectedOption: object["userOption"] as? String ?? "",
+            selectedOption: payload["userOption"] as? String ?? "",
             context: modelContext
         )
         linkedQuestionBankContext = context
@@ -2592,9 +2591,9 @@ struct LibraryRecordDetailView: View {
 
     private var detailQuestionType: String? {
         guard kind == .errors,
-              !isWaitingForQuestionContent,
+              (!isWaitingForQuestionContent || displaysPreviousQuestionSnapshot),
               !payloadDecodeFailed,
-              loadedPayloadKey == activePayloadKey else { return nil }
+              (loadedPayloadKey == activePayloadKey || displaysPreviousQuestionSnapshot) else { return nil }
         guard let record,
               record.collection == kind.collection,
               record.recordID == activeRecordKey,
@@ -2885,6 +2884,7 @@ struct LibraryRecordDetailView: View {
         return message
     }
 
+    @MainActor
     private func loadActivePayload(for trigger: LibraryDetailLoadTrigger) async {
         guard !Task.isCancelled, trigger == activePayloadLoadTrigger else { return }
         let requestID = UUID()
@@ -2970,6 +2970,12 @@ struct LibraryRecordDetailView: View {
 
         payloadDecodeTask = nil
         if let decoded {
+            if displaysPreviousQuestionSnapshot {
+                let contextKey = linkedQuestionContextKey(for: decoded.object)
+                if !contextKey.isEmpty || !resolvedLinkedQuestionKey.isEmpty {
+                    loadLinkedQuestionContext(for: decoded.object, contextKey: contextKey)
+                }
+            }
             refreshObject(decoded.object)
             loadedPayloadKey = key
             payloadLoadState = .loaded(key: key)
@@ -3065,7 +3071,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private var object: [String: Any] {
-        if let activePayloadKey, loadedPayloadKey == activePayloadKey {
+        if let activePayloadKey, loadedPayloadKey == activePayloadKey || displaysPreviousQuestionSnapshot {
             return loadedPayloadObject
         }
         return [:]
@@ -3112,14 +3118,18 @@ struct LibraryRecordDetailView: View {
     }
 
     private var activeSubject: String {
-        let localSubject = record?.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previousSubject = displaysPreviousQuestionSnapshot ? object["subject"] as? String : nil
+        let storedSubject = previousSubject ?? record?.subject
+        let localSubject = storedSubject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return localSubject.isEmpty
             ? (displayQuestionBankContext?.typeMapping.subject ?? scope.subject ?? "")
             : localSubject
     }
 
     private var activeModule: String {
-        let localModule = record?.module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previousModule = displaysPreviousQuestionSnapshot ? object["module"] as? String : nil
+        let storedModule = previousModule ?? record?.module
+        let localModule = storedModule?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return localModule.isEmpty
             ? (displayQuestionBankContext?.typeMapping.module ?? scope.module ?? "")
             : localModule

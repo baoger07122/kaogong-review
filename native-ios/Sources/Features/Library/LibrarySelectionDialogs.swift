@@ -151,6 +151,9 @@ private struct LibrarySelectedTagSearchInput: View {
     let onRemove: (LibraryKnowledgePointReference) -> Void
     let accessibilityTitle: (LibraryKnowledgePointReference) -> String
     let onSubmit: () -> Void
+    let canManage: (LibraryKnowledgePointReference) -> Bool
+    let onRename: (LibraryKnowledgePointReference) -> Void
+    let onDelete: (LibraryKnowledgePointReference) -> Void
 
     var body: some View {
         SelectedTagSearchFlow(spacing: 6) {
@@ -173,6 +176,12 @@ private struct LibrarySelectedTagSearchInput: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("移除已选标签：\(accessibilityTitle(reference))")
+                .contextMenu {
+                    if canManage(reference) {
+                        Button { onRename(reference) } label: { Label("重命名", systemImage: "pencil") }
+                        Button(role: .destructive) { onDelete(reference) } label: { Label("删除", systemImage: "trash") }
+                    }
+                }
             }
             TextField(placeholder, text: $text)
                 .modifier(NativeDirectionalTextFieldNavigation())
@@ -867,7 +876,13 @@ struct QuantityKnowledgePointSelectionDialog: View {
                         accessibilityTitle: { reference in
                             "题型 \(reference.module ?? "旧题型") · 考点 \(reference.name)"
                         },
-                        onSubmit: beginAddTag
+                        onSubmit: beginAddTag,
+                        canManage: { reference in
+                            TagLibraryRepository.tags(kind: .knowledgePoint, module: reference.module ?? currentType, records: records)
+                                .contains(reference.name)
+                        },
+                        onRename: beginRename,
+                        onDelete: beginDelete
                     )
                     Button("新增", action: beginAddTag)
                         .font(.system(size: 12, weight: .semibold))
@@ -1024,11 +1039,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     return false
                 }
             },
-            onRename: { reference in
-                managingType = reference.module ?? activeType
-                renaming = reference.name
-                newName = reference.name
-            },
+            onRename: beginRename,
             onMoveGroup: { reference in
                 let targetModule = reference.module ?? activeType
                 groupMoveTarget = LibraryKnowledgePointGroupMoveTarget(
@@ -1041,10 +1052,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     )
                 )
             },
-            onDelete: { reference in
-                managingType = reference.module ?? activeType
-                deleting = reference.name
-            },
+            onDelete: beginDelete,
             onAdjustOrder: { _ in
                 orderTarget = LibraryKnowledgePointOrderTarget(
                     subject: "数量关系", module: activeType, typeID: nil, groupID: groupID
@@ -1052,6 +1060,17 @@ struct QuantityKnowledgePointSelectionDialog: View {
             }
         )
         .id("quantity-picker|\(activeType)|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
+    }
+
+    private func beginRename(_ reference: LibraryKnowledgePointReference) {
+        managingType = reference.module ?? currentType
+        renaming = reference.name
+        newName = reference.name
+    }
+
+    private func beginDelete(_ reference: LibraryKnowledgePointReference) {
+        managingType = reference.module ?? currentType
+        deleting = reference.name
     }
 
     private var orderedSelected: [LibraryKnowledgePointReference] {
@@ -1113,14 +1132,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
         do {
             let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: targetType, subject: "数量关系", records: records, context: modelContext)
             onTagMutation?(result)
-            selected = selected.map {
-                $0.module == targetType && $0.name == old
-                    ? LibraryKnowledgePointReference(module: targetType, name: value)
-                    : $0
-            }
-            selectionReferences?.wrappedValue = orderedSelected
-            selectionValues?.wrappedValue = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected)
-            selection = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected).joined(separator: "、")
+            updateReferences(module: targetType, oldName: old, newName: value)
             renaming = nil
             managingType = nil
         } catch { message = "重命名失败，请重试" }
@@ -1132,13 +1144,29 @@ struct QuantityKnowledgePointSelectionDialog: View {
         do {
             let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: targetType, subject: "数量关系", records: records, context: modelContext)
             onTagMutation?(result)
-            selected.removeAll { $0.module == targetType && $0.name == name }
-            selectionReferences?.wrappedValue = orderedSelected
-            selectionValues?.wrappedValue = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected)
-            selection = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected).joined(separator: "、")
+            updateReferences(module: targetType, oldName: name, newName: nil)
             deleting = nil
             managingType = nil
         } catch { message = "删除失败，请重试" }
+    }
+
+    private func updateReferences(module: String, oldName: String, newName: String?) {
+        let bound = selectionReferences?.wrappedValue
+            ?? (selectionValues?.wrappedValue ?? parseSelection(selection)).map {
+                LibraryKnowledgePointReference(module: currentType, name: $0)
+            }
+        func updating(_ references: [LibraryKnowledgePointReference]) -> [LibraryKnowledgePointReference] {
+            updateManagedTagReferences(
+                references, currentModule: currentType, module: module, typeID: nil, oldName: oldName, newName: newName
+            )
+        }
+        selected = updating(selected)
+        let updated = updating(bound)
+        guard updated != bound else { return }
+        let names = LibraryKnowledgePointReferencePolicy.displayNames(from: updated)
+        selectionReferences?.wrappedValue = updated
+        selectionValues?.wrappedValue = names
+        selection = names.joined(separator: "、")
     }
 }
 
@@ -1210,16 +1238,20 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         return "当前\(typeLabel) · \(name)"
     }
     private var names: [String] {
+        catalogNames(module: activeModule, typeID: activeCatalogTypeID)
+    }
+
+    private func catalogNames(module: String, typeID: String?) -> [String] {
         if tagKind == .mistakeTag {
             return LibraryMistakeTagRepository.tags(
-                subject: subject, module: activeModule, typeID: activeCatalogTypeID, records: records
+                subject: subject, module: module, typeID: typeID, records: records
             )
         }
-        guard let typeID = activeCatalogTypeID else {
-            return TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records)
+        guard let typeID else {
+            return TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
         }
         return VerbalReasoningKnowledgePointRepository.tags(
-            module: activeModule,
+            module: module,
             typeID: typeID,
             records: records,
             subject: subject
@@ -1238,7 +1270,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     private var legacyNames: [String] {
         guard isLegacyScope else { return [] }
         let selectedNames = selected.compactMap { reference -> String? in
-            guard (reference.module == activeModule || reference.module == nil), reference.typeID == nil else { return nil }
+            guard (reference.module ?? currentModule) == activeModule, reference.typeID == nil else { return nil }
             return reference.name
         }
         let available = activeTypeID == nil
@@ -1334,7 +1366,12 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                         placeholder: "搜索或新增\(tagKind.rawValue)",
                         onRemove: { reference in selected.removeAll { $0 == reference } },
                         accessibilityTitle: selectedAccessibilityTitle,
-                        onSubmit: beginAddTag
+                        onSubmit: beginAddTag,
+                        canManage: { reference in
+                            catalogNames(module: reference.module ?? currentModule, typeID: reference.typeID).contains(reference.name)
+                        },
+                        onRename: beginRename,
+                        onDelete: beginDelete
                     )
                     Button("新增", action: beginAddTag)
                         .font(.system(size: 12, weight: .semibold))
@@ -1439,11 +1476,11 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             TextField("\(tagKind.rawValue)名称", text: $newName).modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
             Button("取消", role: .cancel) { renaming = nil }
-        } message: { Text("当前\(typeLabel)中的该考点会同步更新。") }
-        .alert("删除考点？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+        } message: { Text("引用该标签的错题会同步更新。") }
+        .alert("删除\(tagKind.rawValue)？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("删除", role: .destructive) { deleteTag() }
             Button("取消", role: .cancel) { deleting = nil }
-        } message: { Text("将从\(tagKind.rawValue)库和引用该来源标签的错题中移除。") }
+        } message: { Text("将从\(tagKind.rawValue)库移除此标签，并解除错题上的关联。") }
     }
 
     private func selectedAccessibilityTitle(for reference: LibraryKnowledgePointReference) -> String {
@@ -1471,26 +1508,16 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
 
     private func tagCollection(_ values: [String], groupID: String?, typeID: String?) -> some View {
-        let libraryNames: [String]
-        if tagKind == .mistakeTag {
-            libraryNames = LibraryMistakeTagRepository.tags(
-                subject: subject, module: activeModule, typeID: typeID, records: records
-            )
-        } else if let typeID {
-            libraryNames = VerbalReasoningKnowledgePointRepository.tags(
-                module: activeModule, typeID: typeID, records: records, subject: subject
-            )
-        } else {
-            libraryNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records)
-        }
+        let libraryNames = catalogNames(module: activeModule, typeID: typeID)
         let items = values.map { name in
             let reference = selected.first(where: {
-                $0.name == name && $0.typeID == typeID && ($0.module == activeModule || $0.module == nil)
+                $0.name == name && $0.typeID == typeID && ($0.module ?? currentModule) == activeModule
             }) ?? LibraryKnowledgePointReference(module: activeModule, typeID: typeID, name: name)
             return LibraryKnowledgePointTagItem(
                 reference: reference,
                 title: name,
-                isSelected: selected.contains(reference)
+                isSelected: selected.contains(reference),
+                allowsManagement: libraryNames.contains(name)
             )
         }
         return LibraryKnowledgePointTagCollection(
@@ -1521,18 +1548,11 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     return false
                 }
             },
-            onRename: { reference in
-                managingReference = reference
-                renaming = reference.name
-                newName = reference.name
-            },
+            onRename: beginRename,
             onMoveGroup: { reference in
                 beginGroupMove(reference, module: reference.module ?? activeModule, typeID: reference.typeID)
             },
-            onDelete: { reference in
-                managingReference = reference
-                deleting = reference.name
-            },
+            onDelete: beginDelete,
             onAdjustOrder: { reference in
                 orderTarget = LibraryKnowledgePointOrderTarget(
                     subject: subject,
@@ -1544,6 +1564,17 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             }
         )
         .id("typed-picker|\(subject)|\(activeModule)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
+    }
+
+    private func beginRename(_ reference: LibraryKnowledgePointReference) {
+        managingReference = reference
+        renaming = reference.name
+        newName = reference.name
+    }
+
+    private func beginDelete(_ reference: LibraryKnowledgePointReference) {
+        managingReference = reference
+        deleting = reference.name
     }
 
     @ViewBuilder
@@ -1672,20 +1703,9 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         let target = managingReference ?? LibraryKnowledgePointReference(module: activeModule, typeID: activeCatalogTypeID, name: old)
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         let targetModule = target.module ?? currentModule
-        let targetNames: [String]
-        if tagKind == .mistakeTag {
-            targetNames = LibraryMistakeTagRepository.tags(
-                subject: subject, module: targetModule, typeID: target.typeID, records: records
-            )
-        } else if let typeID = target.typeID {
-            targetNames = VerbalReasoningKnowledgePointRepository.tags(
-                module: targetModule, typeID: typeID, records: records, subject: subject
-            )
-        } else {
-            targetNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: targetModule, records: records)
-        }
+        let targetNames = catalogNames(module: targetModule, typeID: target.typeID)
         guard !value.isEmpty, value != old, !targetNames.contains(value) else {
-            message = "名称不能为空或与当前\(typeLabel)其他考点重复"
+            message = "名称不能为空或与同来源的\(tagKind.rawValue)重复"
             return
         }
         do {
@@ -1706,12 +1726,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 )
             }
             onTagMutation?(result)
-            selected = selected.map { reference in
-                (reference.module == target.module || (reference.module == nil && target.module == currentModule))
-                    && reference.typeID == target.typeID && reference.name == old
-                    ? LibraryKnowledgePointReference(module: targetModule, typeID: target.typeID, name: value)
-                    : reference
-            }
+            updateReferences(for: target, newName: value)
             renaming = nil
             managingReference = nil
         } catch { message = "重命名失败，请重试" }
@@ -1738,11 +1753,40 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 )
             }
             onTagMutation?(result)
-            selected.removeAll { $0.module == target.module && $0.typeID == target.typeID && $0.name == name }
+            updateReferences(for: target, newName: nil)
             deleting = nil
             managingReference = nil
         } catch { message = "删除失败，请重试" }
     }
+
+    private func updateReferences(for target: LibraryKnowledgePointReference, newName: String?) {
+        func updating(_ references: [LibraryKnowledgePointReference]) -> [LibraryKnowledgePointReference] {
+            updateManagedTagReferences(
+                references, currentModule: currentModule, module: target.module ?? currentModule,
+                typeID: target.typeID, oldName: target.name, newName: newName
+            )
+        }
+        selected = updating(selected)
+        let updated = updating(selection)
+        guard updated != selection else { return }
+        selection = updated
+        legacyDisplaySelection = LibraryKnowledgePointReferencePolicy.displayNames(from: updated).joined(separator: "、")
+    }
+}
+
+private func updateManagedTagReferences(
+    _ references: [LibraryKnowledgePointReference],
+    currentModule: String,
+    module: String,
+    typeID: String?,
+    oldName: String,
+    newName: String?
+) -> [LibraryKnowledgePointReference] {
+    LibraryKnowledgePointReferencePolicy.uniqueReferences(references.compactMap { reference in
+        guard (reference.module ?? currentModule) == module,
+              reference.typeID == typeID, reference.name == oldName else { return reference }
+        return newName.map { LibraryKnowledgePointReference(module: module, typeID: typeID, name: $0) }
+    })
 }
 
 struct LibraryRelationSelectionDialog: View {

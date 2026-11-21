@@ -47,7 +47,6 @@ struct LibraryView: View {
     @State private var pendingEditorRouteKey: String?
     @State private var preparedEditDrafts: [String: LibraryRecordDraft] = [:]
     @State private var errorDetailWarmCache = LibraryErrorDetailWarmCache()
-    @State private var errorEntryPreview: LibraryErrorEntryPreview?
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -70,7 +69,6 @@ struct LibraryView: View {
         .onAppear { NativePerformanceLog.event("library onAppear") }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
             errorDetailWarmCache.reset()
-            errorEntryPreview = nil
             snapshotCache.invalidate()
             recordListCache.invalidate()
             ReviewSourceMetadataCache.shared.removeAll()
@@ -112,10 +110,6 @@ struct LibraryView: View {
             }
         }
         .onChange(of: navigationPath) { _, path in
-            if let errorEntryPreview,
-               !path.contains(.detail(kind: .errors, recordID: errorEntryPreview.recordID)) {
-                self.errorEntryPreview = nil
-            }
             let activeEditorKey: String? = path.last.flatMap { route in
                 guard case let .editor(kind, recordID) = route, let recordID else { return nil }
                 return "\(kind.collection)|\(recordID)"
@@ -298,7 +292,6 @@ struct LibraryView: View {
                         scope: scope,
                         record: record,
                         preparedErrorDetail: kind == .errors ? errorDetailWarmCache.prepared(for: record) : nil,
-                        errorEntryPreview: kind == .errors ? errorEntryPreview : nil,
                         onEdit: { activeRecordID in openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID) },
                         onEditPrepared: { activeRecordID, draft in
                             openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID, preparedDraft: draft)
@@ -1881,7 +1874,6 @@ struct LibraryView: View {
     }
 
     private func open(_ snapshot: LibraryRecordSnapshot) {
-        errorEntryPreview = kind == .errors ? snapshot.errorEntryPreview : nil
         if kind == .errors || kind == .words || kind == .notes {
             navigationPath.append(.detail(kind: kind, recordID: snapshot.record.recordID))
         } else {
