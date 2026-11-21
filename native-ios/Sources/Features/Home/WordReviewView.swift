@@ -154,7 +154,7 @@ struct WordReviewView: View {
 
     private var overview: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: tab == .today ? 12 : 18) {
                 Picker("复习视图", selection: $tab) {
                     ForEach(OverviewTab.allCases) { item in
                         Text(item.rawValue).tag(item)
@@ -168,8 +168,8 @@ struct WordReviewView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 96)
+            .padding(.top, tab == .today ? 10 : 14)
+            .padding(.bottom, tab == .today ? 10 : 96)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
@@ -196,7 +196,7 @@ struct WordReviewView: View {
     }
 
     private var todayContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             categorySelector(selection: selectedCategory, includesAll: false, count: { category in
                 currentOverview?.dueWordIDsByCategory[category.rawValue]?.count ?? 0
             }) { category in
@@ -215,8 +215,8 @@ struct WordReviewView: View {
             } else if categoryDueWordIDs.isEmpty {
                 emptyState(title: "此类暂无待复习词语", detail: "新增或补充词条后，会按加入日期自动安排复习。", image: "checkmark.circle")
             } else {
-                let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                let columns = [GridItem(.adaptive(minimum: 144), spacing: 8)]
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                     ForEach(categoryDueWordIDs, id: \.self) { wordRecordID in
                         if let card = currentOverview?.cardsByID[wordRecordID] {
                             Button { beginDueSession(startingAt: wordRecordID) } label: {
@@ -224,10 +224,13 @@ struct WordReviewView: View {
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundStyle(.primary)
                                     .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                                    .padding(12)
-                                    .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .background(Color.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
