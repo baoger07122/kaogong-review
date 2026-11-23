@@ -5,6 +5,11 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct ShenlunWorkspaceEditorView: View {
+    private enum MaterialFormattingState {
+        case unchanged
+        case undo(text: String, versionID: String)
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -16,6 +21,7 @@ struct ShenlunWorkspaceEditorView: View {
     @State private var practice: ShenlunWorkspacePractice?
     @State private var question: ShenlunWorkspaceQuestion
     @State private var materials: [ShenlunWorkspaceMaterial] = []
+    @State private var materialFormatting: [String: MaterialFormattingState] = [:]
     @State private var newAssets: [ShenlunWorkspaceAsset] = []
     @State private var deletingAssetIDs = Set<String>()
     @State private var selectedMaterialIDs = Set<String>()
@@ -272,6 +278,7 @@ struct ShenlunWorkspaceEditorView: View {
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 9))
                     .overlay { RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1), lineWidth: 0.7) }
                     .accessibilityIdentifier("shenlun-material-text-\(index)")
+                materialFormattingControls(for: material)
             } else if material.kind == .pdf {
                 Text("PDF：\(material.sourceName ?? "已选择文件") · \(pageCounts[material.id].map(String.init) ?? "? 页")")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -287,6 +294,27 @@ struct ShenlunWorkspaceEditorView: View {
         }
         .padding(10)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
+    }
+
+    private func materialFormattingControls(for material: ShenlunWorkspaceMaterial) -> some View {
+        HStack(spacing: 10) {
+            if case .undo? = materialFormatting[material.id] {
+                Button { undoMaterialFormatting(id: material.id) } label: {
+                    Text("撤销整理").frame(minHeight: 44).contentShape(Rectangle())
+                }
+            } else {
+                Button { formatMaterial(id: material.id) } label: {
+                    Text("整理排版").frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(material.text.allSatisfy(\.isWhitespace))
+                if case .unchanged? = materialFormatting[material.id] {
+                    Text("排版无需整理")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.system(size: 13, weight: .medium))
+        .tint(AppTheme.accent)
     }
 
     private var referenceAnswerSection: some View {
@@ -352,10 +380,33 @@ struct ShenlunWorkspaceEditorView: View {
 
     private func materialTextBinding(id: String) -> Binding<String> {
         Binding(get: { materials.first(where: { $0.id == id })?.text ?? "" }, set: { value in
-            guard let index = materials.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = materials.firstIndex(where: { $0.id == id }),
+                  materials[index].text != value else { return }
             materials[index].text = value
             materials[index].versionID = UUID().uuidString
+            materialFormatting.removeValue(forKey: id)
         })
+    }
+
+    private func formatMaterial(id: String) {
+        guard let index = materials.firstIndex(where: { $0.id == id }), materials[index].kind == .text else { return }
+        let material = materials[index]
+        let formatted = ShenlunMaterialTextFormatter.format(material.text)
+        guard formatted != material.text else {
+            materialFormatting[id] = .unchanged
+            return
+        }
+        materialFormatting[id] = .undo(text: material.text, versionID: material.versionID)
+        materials[index].text = formatted
+        materials[index].versionID = UUID().uuidString
+    }
+
+    private func undoMaterialFormatting(id: String) {
+        guard let index = materials.firstIndex(where: { $0.id == id }),
+              case let .undo(text, versionID)? = materialFormatting[id] else { return }
+        materials[index].text = text
+        materials[index].versionID = versionID
+        materialFormatting.removeValue(forKey: id)
     }
 
     private func pageRangeBinding(id: String) -> Binding<String> {
@@ -386,6 +437,7 @@ struct ShenlunWorkspaceEditorView: View {
             }
         }
         materials.removeAll { $0.id == id }
+        materialFormatting.removeValue(forKey: id)
         selectedMaterialIDs.remove(id)
         for index in materials.indices { materials[index].order = index }
     }

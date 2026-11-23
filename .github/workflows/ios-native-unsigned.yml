@@ -126,6 +126,7 @@ jobs:
           "$RUNNER_TEMP/native-rich-text-paste-behavior"
           swiftc -parse-as-library \
             native-ios/Sources/Features/Library/ShenlunAnswerGridLayout.swift \
+            native-ios/Sources/Features/Library/ShenlunMaterialTextFormatter.swift \
             native-ios/Tests/ShenlunWorkspaceBehavior.swift \
             -o "$RUNNER_TEMP/shenlun-workspace-behavior"
           "$RUNNER_TEMP/shenlun-workspace-behavior"

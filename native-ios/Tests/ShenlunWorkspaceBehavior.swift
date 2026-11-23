@@ -42,6 +42,38 @@ enum ShenlunWorkspaceBehavior {
             precondition(ShenlunPDFPageSelectionPolicy.parse(invalid, pageCount: 7) == nil,
                          "invalid PDF page range (invalid) must be rejected")
         }
-        print("PASS Shenlun answer grid indexing, limits, line breaks, overflow, and explicit PDF page selection")
+        checkMaterialFormatting()
+        print("PASS Shenlun answer grid, explicit PDF page selection, and copied material formatting")
+    }
+
+    private static func checkMaterialFormatting() {
+        let copiedFromPDF = """
+        “今年父母双双退休，父亲有高压电工证，母亲有执业药师证，退休后想
+        找份相对轻松的
+        工作。
+        ”几个月前，小丁开始在社交平台上给退休的父母找工作。信息发布后引
+        起了反响，有
+        不少网友表示支持。
+        33岁的小丁是一名律师，经常加班，她很羡慕退休后时间更加自由的父
+        母，但父母都出
+        现了不同程度的焦虑。
+        """
+        let expected = """
+        “今年父母双双退休，父亲有高压电工证，母亲有执业药师证，退休后想找份相对轻松的工作。”几个月前，小丁开始在社交平台上给退休的父母找工作。信息发布后引起了反响，有不少网友表示支持。
+
+        33岁的小丁是一名律师，经常加班，她很羡慕退休后时间更加自由的父母，但父母都出现了不同程度的焦虑。
+        """
+        let formatted = ShenlunMaterialTextFormatter.format(copiedFromPDF)
+        precondition(formatted == expected, "word wraps and orphan closing quotes must join without merging the inferred paragraphs")
+        precondition(ShenlunMaterialTextFormatter.format(formatted) == formatted, "formatted material should stay stable")
+
+        let structured = "材料4\r\n　　第一段内容，\r\n跨行继续。\r\n\r\n第二段内容。\r\n（一）第一项\r\n接着说明。\r\n（二）第二项"
+        let expectedStructure = "材料4\n\n第一段内容，跨行继续。\n\n第二段内容。\n\n（一）第一项接着说明。\n\n（二）第二项"
+        precondition(ShenlunMaterialTextFormatter.format(structured) == expectedStructure,
+                     "keep the heading, existing paragraph gaps and list starts")
+        precondition(ShenlunMaterialTextFormatter.format("public\nservice\u{2029}下一段") == "public service\n\n下一段",
+                     "retain word spacing and Unicode paragraph separators")
+        precondition(ShenlunMaterialTextFormatter.format("无须整理的单段。") == "无须整理的单段。",
+                     "preserve text with no line breaks")
     }
 }
