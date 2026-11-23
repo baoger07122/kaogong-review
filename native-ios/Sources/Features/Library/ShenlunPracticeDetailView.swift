@@ -25,7 +25,6 @@ private struct ShenlunQuestionReadingLocation: Codable {
 
 struct ShenlunPracticeDetailView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var pencilController = PencilDrawingController()
 
     let practice: ShenlunWorkspacePractice
@@ -42,7 +41,7 @@ struct ShenlunPracticeDetailView: View {
     @State private var zoom: CGFloat = 0.55
     @State private var answerText = ""
     @State private var referenceAnswerDraft = ""
-    @State private var isAnswerEditing = false
+    @State private var answerFocusRequest: UUID?
     @State private var isEditingCompletedAnswer = false
     @State private var isEditingReferenceAnswer = false
     @State private var selectedReviewSection: ShenlunReviewSection = .answer
@@ -152,8 +151,14 @@ struct ShenlunPracticeDetailView: View {
             let dualPane = proxy.size.width >= 680
             let available = max(0, proxy.size.width - 1)
             let leftWidth = min(max(280, available * 0.55), max(280, available - 280))
+            let movesDrawingToolsBelowBar = proxy.size.width < 580
             VStack(spacing: 0) {
-                topBar(windowWidth: proxy.size.width)
+                if isDoodling && showsMaterialTools && movesDrawingToolsBelowBar {
+                    drawingToolbar
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
                 if dualPane {
                     HStack(spacing: 0) {
                         leftPane.frame(width: leftWidth)
@@ -161,18 +166,30 @@ struct ShenlunPracticeDetailView: View {
                         rightPane.frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            leftPane
-                                .frame(minHeight: 390)
-                            rightPane
-                                .frame(minHeight: 540)
+                    ScrollViewReader { scroll in
+                        ScrollView {
+                            VStack(spacing: 12) {
+                                leftPane
+                                    .frame(minHeight: 390)
+                                rightPane
+                                    .frame(minHeight: 540)
+                                    .id("shenlun-answer-pane")
+                            }
+                            .padding(.bottom, 16)
                         }
-                        .padding(.bottom, 16)
+                        .onChange(of: answerFocusRequest, initial: true) { _, request in
+                            if request != nil { scroll.scrollTo("shenlun-answer-pane", anchor: .top) }
+                        }
                     }
                 }
             }
             .background(Color.white)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    practiceToolbar(showsInlineDrawingTools: !movesDrawingToolsBelowBar)
+                }
+                .documentToolbarBackground()
+            }
             .overlay(alignment: .bottom) {
                 if pencilController.showSettings && isDoodling {
                     NativePencilDrawingSettingsPanel(controller: pencilController)
@@ -181,8 +198,9 @@ struct ShenlunPracticeDetailView: View {
             }
         }
         .background(Color.white)
-        .navigationBarBackButtonHidden()
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(practice.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .sheet(isPresented: $isShowingDoubtEditor) { doubtEditorSheet }
         .alert("申论工作区", isPresented: Binding(
             get: { errorMessage != nil },
@@ -199,7 +217,6 @@ struct ShenlunPracticeDetailView: View {
         } message: {
             Text("图层名称不能为空。")
         }
-        .popover(isPresented: $isShowingLayerMenu, arrowEdge: .top) { layerPopover }
         .task { loadInitialData() }
         .task(id: drawingLoadKey) { loadPageAssetsAndDrawings() }
         .task(id: drawingData) {
@@ -214,82 +231,57 @@ struct ShenlunPracticeDetailView: View {
             guard !Task.isCancelled else { return }
             persistAnswerDraft()
         }
+        .onDisappear {
+            if didLoad, currentAnswer?.isCompleted != true, answerText != (currentAnswer?.answerText ?? "") {
+                persistAnswerDraft()
+            }
+        }
         .onChange(of: currentMaterial?.versionID) { _, _ in refreshTextPaperLayout() }
     }
 
-    private func topBar(windowWidth: CGFloat) -> some View {
-        let showsMaterialTools = !isRequirementsPage && currentMaterial != nil
-        let movesToolbarToSecondRow = windowWidth < 480 && isDoodling && showsMaterialTools
+    private var showsMaterialTools: Bool { !isRequirementsPage && currentMaterial != nil }
 
-        return VStack(spacing: 0) {
-            HStack(spacing: 9) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 36, height: 42)
-                        .contentShape(Rectangle())
+    private func practiceToolbar(showsInlineDrawingTools: Bool) -> some View {
+        HStack(spacing: 8) {
+            Menu {
+                if let currentQuestion {
+                    Button { onEditQuestion(currentQuestion.id) } label: { Label("编辑题目", systemImage: "pencil") }
                 }
-                .accessibilityLabel("返回申论列表")
-
-                Text(practice.name)
+                if practice.kind == .paper {
+                    Button(action: onAddQuestion) { Label("添加题目", systemImage: "plus") }
+                }
+                Button {
+                    selectMaterial(nil)
+                } label: { Label("查看作答要求", systemImage: "doc.text") }
+            } label: {
+                Image(systemName: "ellipsis")
                     .font(.system(size: 17, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel(practice.name)
+                    .frame(width: 36, height: 44)
+            }
+            .accessibilityLabel("更多操作")
 
-                Menu {
-                    if let currentQuestion {
-                        Button { onEditQuestion(currentQuestion.id) } label: { Label("编辑题目", systemImage: "pencil") }
-                    }
-                    if practice.kind == .paper {
-                        Button(action: onAddQuestion) { Label("添加题目", systemImage: "plus") }
-                    }
-                    Button {
-                        selectMaterial(nil)
-                    } label: { Label("查看作答要求", systemImage: "doc.text") }
-                } label: {
-                    Image(systemName: "ellipsis")
+            if showsMaterialTools {
+                Button { isShowingLayerMenu.toggle() } label: {
+                    Image(systemName: "square.3.layers.3d")
                         .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 36, height: 42)
+                        .frame(width: 36, height: 44)
                 }
-                .accessibilityLabel("更多操作")
+                .accessibilityLabel("批注图层")
+                .popover(isPresented: $isShowingLayerMenu, arrowEdge: .top) { layerPopover }
 
-                if showsMaterialTools {
-                    Button { isShowingLayerMenu.toggle() } label: {
-                        Image(systemName: "square.3.layers.3d")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 36, height: 42)
+                if !isDoodling {
+                    Button(action: openDoodling) {
+                        Label("涂鸦", systemImage: "pencil.tip.crop.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .frame(height: 44)
                     }
-                    .accessibilityLabel("批注图层")
-
-                    if !isDoodling {
-                        Button(action: openDoodling) {
-                            Label("涂鸦", systemImage: "pencil.tip.crop.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                                .padding(.horizontal, 8)
-                                .frame(height: 40)
-                        }
-                        .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
-                        .disabled(activeLayer?.isVisible != true || currentMaterial?.showAllLayers != true)
-                    } else if !movesToolbarToSecondRow {
-                        drawingToolbar
-                    }
+                    .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
+                    .disabled(activeLayer?.isVisible != true || currentMaterial?.showAllLayers != true)
+                } else if showsInlineDrawingTools {
+                    drawingToolbar
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 54)
-
-            if movesToolbarToSecondRow {
-                drawingToolbar
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        }
-        .background(Color.white)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.7)
         }
     }
 
@@ -535,7 +527,13 @@ struct ShenlunPracticeDetailView: View {
     private func answerInput(for question: ShenlunWorkspaceQuestion) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Button(isAnswerEditing ? "收起" : "键入") { isAnswerEditing.toggle() }
+                Button(answerFocusRequest == nil ? "键入" : "收起") {
+                    if answerFocusRequest == nil {
+                        beginAnswerEditing()
+                    } else {
+                        answerFocusRequest = nil
+                    }
+                }
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.accent)
                 Spacer()
                 if let maximum = question.maximumWordCount {
@@ -549,30 +547,41 @@ struct ShenlunPracticeDetailView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if question.maximumWordCount == nil {
-                        Text("未设字数上限").font(.system(size: 13)).foregroundStyle(.secondary)
-                        if isAnswerEditing || answerText.isEmpty {
-                            ShenlunCommittedTextEditor(text: $answerText, accessibilityIdentifier: "shenlun-answer-text")
-                                .frame(minHeight: 220)
-                        } else {
-                            Text(answerText).font(.system(size: 15)).frame(maxWidth: .infinity, alignment: .leading)
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let answerFocusRequest {
+                            ShenlunCommittedTextEditor(
+                                text: $answerText,
+                                accessibilityIdentifier: "shenlun-answer-text",
+                                focusRequest: answerFocusRequest
+                            )
+                            .frame(minHeight: question.maximumWordCount == nil ? 220 : 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                    } else {
-                        answerGridPaper(for: question)
-                            .onTapGesture { isAnswerEditing = true }
-                        if answerProjection.overflowCount > 0 {
-                            Text("超出 \(answerProjection.overflowCount) 格，原文未截断。")
-                                .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
-                        }
-                        if isAnswerEditing {
-                            ShenlunCommittedTextEditor(text: $answerText, accessibilityIdentifier: "shenlun-answer-text")
-                                .frame(minHeight: 180)
+                        if question.maximumWordCount != nil {
+                            answerGridPaper(for: question)
+                            if answerProjection.overflowCount > 0 {
+                                Text("超出 \(answerProjection.overflowCount) 格，原文未截断。")
+                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
+                            }
+                        } else if answerFocusRequest == nil {
+                            Button(action: beginAnswerEditing) {
+                                Text(answerText.isEmpty ? "点此键入答案" : answerText)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(answerText.isEmpty ? Color.secondary : Color.primary)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(12)
+                    .id("shenlun-answer-paper-start")
                 }
-                .padding(12)
+                .onChange(of: answerFocusRequest, initial: true) { _, request in
+                    if request != nil { scroll.scrollTo("shenlun-answer-paper-start", anchor: .top) }
+                }
             }
             Spacer(minLength: 0)
             doubtDisclosure
@@ -592,6 +601,10 @@ struct ShenlunPracticeDetailView: View {
             .padding(.vertical, 10)
             .background(Color.white)
         }
+    }
+
+    private func beginAnswerEditing() {
+        answerFocusRequest = UUID()
     }
 
     private func answerGridPaper(for question: ShenlunWorkspaceQuestion) -> some View {
@@ -643,6 +656,8 @@ struct ShenlunPracticeDetailView: View {
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: beginAnswerEditing)
         }
     }
 
@@ -1079,7 +1094,7 @@ struct ShenlunPracticeDetailView: View {
             self.questionID = id
             self.answerText = self.answers[id]?.answerText ?? ""
             self.referenceAnswerDraft = self.questions.first(where: { $0.id == id })?.referenceAnswer ?? ""
-            self.isAnswerEditing = false
+            self.answerFocusRequest = nil
             self.isEditingCompletedAnswer = false
             self.isEditingReferenceAnswer = false
             self.selectedReviewSection = .answer
@@ -1106,7 +1121,7 @@ struct ShenlunPracticeDetailView: View {
         do {
             try ShenlunWorkspaceRepository.save(updated, in: modelContext)
             answers[questionID] = updated
-            isAnswerEditing = false
+            answerFocusRequest = nil
             selectedReviewSection = .answer
             answerPaperIndex = 0
             onPracticeChanged()
@@ -1377,11 +1392,12 @@ struct ShenlunPracticeDetailView: View {
 private struct ShenlunCommittedTextEditor: UIViewRepresentable {
     @Binding var text: String
     let accessibilityIdentifier: String
+    var focusRequest: UUID? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+    func makeUIView(context: Context) -> FocusableTextView {
+        let view = FocusableTextView()
         view.delegate = context.coordinator
         view.font = .systemFont(ofSize: 15)
         view.textColor = .label
@@ -1391,15 +1407,44 @@ private struct ShenlunCommittedTextEditor: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.textContainer.lineBreakMode = .byCharWrapping
         view.text = text
+        if focusRequest != nil {
+            view.selectedRange = NSRange(location: text.utf16.count, length: 0)
+        }
+        view.focusRequest = focusRequest
         view.isScrollEnabled = true
         return view
     }
 
-    func updateUIView(_ view: UITextView, context: Context) {
+    func updateUIView(_ view: FocusableTextView, context: Context) {
         context.coordinator.parent = self
         view.accessibilityIdentifier = accessibilityIdentifier
-        guard view.text != text, view.markedTextRange == nil else { return }
-        view.text = text
+        if view.text != text, view.markedTextRange == nil {
+            view.text = text
+        }
+        view.focusRequest = focusRequest
+    }
+
+    final class FocusableTextView: UITextView {
+        var focusRequest: UUID? {
+            didSet {
+                if focusRequest != oldValue { applyFocusRequest() }
+            }
+        }
+        private var appliedFocusRequest: UUID?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyFocusRequest()
+        }
+
+        private func applyFocusRequest() {
+            guard window != nil, let request = focusRequest, request != appliedFocusRequest else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil, self.focusRequest == request,
+                      self.appliedFocusRequest != request else { return }
+                if self.becomeFirstResponder() { self.appliedFocusRequest = request }
+            }
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
