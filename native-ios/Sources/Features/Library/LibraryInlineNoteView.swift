@@ -86,6 +86,7 @@ final class LibraryInlineNoteSession: ObservableObject {
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
     private(set) weak var noteAnchorView: UIView?
     private var focusRevealSessionID: UUID?
+    private weak var focusRevealTextView: UITextView?
     private var keyboardFrameObserver: NSObjectProtocol?
     private var pendingReveal: DispatchWorkItem?
     private var draftRestoreCompletions: [() -> Void] = []
@@ -100,6 +101,7 @@ final class LibraryInlineNoteSession: ObservableObject {
 
     func resetFocusReveal() {
         focusRevealSessionID = nil
+        focusRevealTextView = nil
         pendingReveal?.cancel()
         pendingReveal = nil
         if let keyboardFrameObserver {
@@ -117,13 +119,14 @@ final class LibraryInlineNoteSession: ObservableObject {
                 forName: UIResponder.keyboardWillChangeFrameNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self, weak textView] _ in
-                guard let self, let textView else { return }
+            ) { [weak self] _ in
                 Task { @MainActor in
+                    guard let self, let textView = self.focusRevealTextView else { return }
                     self.scheduleWritableAreaReveal(in: textView, sessionID: sessionID)
                 }
             }
         }
+        focusRevealTextView = textView
         scheduleWritableAreaReveal(in: textView, sessionID: sessionID)
     }
 
@@ -152,7 +155,7 @@ final class LibraryInlineNoteSession: ObservableObject {
         var ancestor = textView.superview
         var outerScrollView: UIScrollView?
         while let view = ancestor {
-            if let scrollView = view as? UIScrollView {
+            if let scrollView = view as? UIScrollView, scrollView.isScrollEnabled {
                 outerScrollView = scrollView
                 break
             }
@@ -339,6 +342,7 @@ struct LibraryInlineNoteView: View {
     @State private var editingInitialAttributedText: NSAttributedString?
     @State private var initialSelectionOffset: Int?
     @State private var initialSelectionWidth: CGFloat?
+    @State private var initialBlockCell: RichTextTable.Cell?
     @State private var isPhotoPickerPresented = false
     @State private var isInsertingPhoto = false
     @State private var photoImportTarget: NativeRichTextInsertionTarget?
@@ -574,6 +578,7 @@ struct LibraryInlineNoteView: View {
                     focusOnAppear: true,
                     initialSelectionOffset: initialSelectionOffset,
                     initialSelectionWidth: initialSelectionWidth,
+                    initialBlockCell: initialBlockCell,
                     preparedInitialHTML: editingInitialHTML,
                     preparedInitialAttributedText: editingInitialAttributedText,
                     editorSession: editorSession,
@@ -1008,7 +1013,7 @@ struct LibraryInlineNoteView: View {
                             ? "当前无法完整还原笔记格式或附件，已保留原内容供查看。"
                             : "预览已切换为安全模式；编辑时会保留正文和已有附件。"
                     },
-                    onTapTextOffset: { offset, snapshot, width in
+                    onTapTextOffset: { offset, snapshot, width, blockCell in
                         guard !currentPreparedNote.result.usedSafeFallback
                                 || currentPreparedNote.editableAttributedText != nil else {
                             displayWarning = "当前无法完整还原笔记的格式或附件，已保留原内容供查看。"
@@ -1018,7 +1023,8 @@ struct LibraryInlineNoteView: View {
                             html: storedNote,
                             snapshot: snapshot,
                             selectionOffset: offset,
-                            sourceWidth: width
+                            sourceWidth: width,
+                            blockCell: blockCell
                         )
                     }
                 )
@@ -1210,14 +1216,15 @@ struct LibraryInlineNoteView: View {
 
     private func pendingDraftTapHandler(
         for preparedDraft: PreparedLibraryInlineNote
-    ) -> ((Int, NSAttributedString, CGFloat) -> Void)? {
+    ) -> ((Int, NSAttributedString, CGFloat, RichTextTable.Cell?) -> Void)? {
         guard preparedDraft.editableAttributedText != nil else { return nil }
-        return { offset, snapshot, width in
+        return { offset, snapshot, width, blockCell in
             beginEditing(
                 html: draft,
                 snapshot: snapshot,
                 selectionOffset: offset,
-                sourceWidth: width
+                sourceWidth: width,
+                blockCell: blockCell
             )
         }
     }
@@ -1543,7 +1550,8 @@ struct LibraryInlineNoteView: View {
         html: String,
         snapshot: NSAttributedString,
         selectionOffset: Int,
-        sourceWidth: CGFloat?
+        sourceWidth: CGFloat?,
+        blockCell: RichTextTable.Cell? = nil
     ) {
         editorSession.clearMediaNotice(for: renderDocumentID)
         let state = saveService.state(recordID: renderDocumentID)
@@ -1568,6 +1576,7 @@ struct LibraryInlineNoteView: View {
         editingInitialAttributedText = snapshot.copy() as? NSAttributedString ?? snapshot
         initialSelectionOffset = max(0, min(selectionOffset, snapshot.length))
         initialSelectionWidth = sourceWidth
+        initialBlockCell = blockCell
         editingSessionID = UUID()
         editorSession.activate(documentID: renderDocumentID, sessionID: editingSessionID)
         editing = true
@@ -2045,6 +2054,7 @@ struct LibraryInlineNoteView: View {
                     self.editingInitialAttributedText = nil
                     self.initialSelectionOffset = nil
                     self.initialSelectionWidth = nil
+                    self.initialBlockCell = nil
                     self.isEndingProgrammaticTransition = false
                     self.session.setFinishFailureMessage(nil)
                     self.updateSessionPendingState()
@@ -2594,6 +2604,7 @@ struct LibraryInlineNoteView: View {
         editingInitialAttributedText = nil
         initialSelectionOffset = nil
         initialSelectionWidth = nil
+        initialBlockCell = nil
         isFinishing = false
         self.transientErrorMessage = transientErrorMessage
         updateSessionPendingState()

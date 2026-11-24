@@ -292,13 +292,15 @@ enum NativeRichTextEditorError: LocalizedError {
     case invalidSelection
     case imageAttachmentInvalid
     case tableTargetChanged
+    case tablePayloadTooLarge
 
     var errorDescription: String? {
         switch self {
         case .editorSessionChanged: "笔记页面已切换，图片没有插入到其他题目。请重新打开图片选择器。"
         case .invalidSelection: "图片插入位置已失效，请重新选择插入位置后再试。"
         case .imageAttachmentInvalid: "图片无法生成附件，原笔记没有被修改。"
-        case .tableTargetChanged: "表格位置已变化，当前输入仍保留。"
+        case .tableTargetChanged: "附件位置已变化，当前输入仍保留。"
+        case .tablePayloadTooLarge: "附件文字总量超过可保存范围，请缩短后再试。"
         }
     }
 }
@@ -324,6 +326,7 @@ private enum NativeRichTextPhotoError: LocalizedError {
 private enum RichTextEditorAlert {
     case linkPrompt
     case imageError(String)
+    case blockError(String)
 }
 
 @MainActor
@@ -338,6 +341,7 @@ struct NativeRichTextEditor: View {
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
     var initialSelectionWidth: CGFloat? = nil
+    var initialBlockCell: RichTextTable.Cell? = nil
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
@@ -388,14 +392,17 @@ struct NativeRichTextEditor: View {
     }
 
     private var alertTitle: String {
-        if case .linkPrompt? = activeAlert { return "添加链接" }
-        return "无法插入图片"
+        switch activeAlert {
+        case .linkPrompt: "添加链接"
+        case .blockError: "无法更新笔记附件"
+        case .imageError, nil: "无法插入图片"
+        }
     }
 
     private var alertMessage: String {
         switch activeAlert {
         case .linkPrompt: "选中文字后添加链接；没有选中文字时会直接插入链接地址。"
-        case .imageError(let message): message
+        case .imageError(let message), .blockError(let message): message
         case nil: ""
         }
     }
@@ -415,6 +422,7 @@ struct NativeRichTextEditor: View {
                 onOpenInternalLink: onOpenInternalLink,
                 onFocusReady: onFocusReady,
                 onCaretChange: onCaretChange,
+                onInlineBlockError: { activeAlert = .blockError($0) },
                 keyboardAccessory: AnyView(keyboardToolbar),
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
                 keyboardAccessoryState: RichTextKeyboardAccessoryState(
@@ -435,6 +443,7 @@ struct NativeRichTextEditor: View {
                 focusOnAppear: focusOnAppear,
                 initialSelectionOffset: initialSelectionOffset,
                 initialSelectionWidth: initialSelectionWidth,
+                initialBlockCell: initialBlockCell,
                 preparedInitialHTML: preparedInitialHTML,
                 preparedInitialAttributedText: preparedInitialAttributedText,
                 editorSession: activeEditorSession,
@@ -508,7 +517,7 @@ struct NativeRichTextEditor: View {
                     command = RichTextCommand(kind: .link(value))
                     linkTarget = "https://"
                 }
-            case .imageError(_), nil:
+            case .imageError, .blockError, nil:
                 Button("好", role: .cancel) {}
             }
         } message: {
@@ -684,6 +693,10 @@ struct NativeRichTextEditor: View {
                 else { openPhotoPicker() }
             } label: { Label("图片", systemImage: "photo") }
             Button {
+                if noteFormatting && tableAppearance == .libraryContent {
+                    insertInlineBlock(RichTextTable())
+                    return
+                }
                 activeEditorSession.commitCompositionIfNeeded()
                 let target: RichTextTableEditTarget?
                 if selectedTable != nil {
@@ -701,6 +714,11 @@ struct NativeRichTextEditor: View {
                 )
                 activeEditorSession.setAuxiliaryPanelPresented(true)
             } label: { Label("表格", systemImage: "tablecells") }
+            if noteFormatting && tableAppearance == .libraryContent {
+                Button {
+                    insertInlineBlock(RichTextTable.flowchart())
+                } label: { Label("流程图", systemImage: "point.3.connected.trianglepath.dotted") }
+            }
             Button { run(.divider) } label: { Label("分割线", systemImage: "minus") }
             Button {
                 activeEditorSession.setAuxiliaryPanelPresented(true)
@@ -739,6 +757,18 @@ struct NativeRichTextEditor: View {
             pendingPhotoImportRequestID = nil
             activeEditorSession.markImageImportMenuDismissed(requestID: requestID)
         }
+    }
+
+    private func insertInlineBlock(_ block: RichTextTable) {
+        activeEditorSession.commitCompositionIfNeeded()
+        guard !activeEditorSession.isComposingText,
+              let target = activeEditorSession.captureTableInsertionTarget(
+                expectedDocumentID: activeEditorDocumentID,
+                expectedSessionID: activeEditorSessionID
+              ) else { return }
+        command = RichTextCommand(kind: .table(block), tableCompletion: { result in
+            if case .failure = result { activeAlert = .blockError("插入位置已变化，请在正文里重新点选。") }
+        }, tableEditTarget: target)
     }
 
     private var paragraphMenu: some View {
@@ -1077,7 +1107,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     var requiresPreparedSnapshot = false
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
-    var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
+    var onTapTextOffset: ((Int, NSAttributedString, CGFloat, RichTextTable.Cell?) -> Void)? = nil
     private var preparedSnapshot: NativeRichTextDisplayRenderResult?
     private var renderVersion: String?
 
@@ -1093,7 +1123,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         noteFormatting: Bool = false,
         requiresPreparedSnapshot: Bool = false,
         onFallback: (() -> Void)? = nil,
-        onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
+        onTapTextOffset: ((Int, NSAttributedString, CGFloat, RichTextTable.Cell?) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
@@ -1117,7 +1147,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         noteFormatting: Bool = false,
         requiresPreparedSnapshot: Bool = false,
         onFallback: (() -> Void)? = nil,
-        onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
+        onTapTextOffset: ((Int, NSAttributedString, CGFloat, RichTextTable.Cell?) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
@@ -1162,13 +1192,18 @@ struct NativeRichTextDisplay: UIViewRepresentable {
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             guard (!parent.requiresPreparedSnapshot || parent.preparedSnapshot != nil),
-                  let view = recognizer.view as? UITextView,
-                  recognizer.state == .ended,
-                  let position = view.closestPosition(to: recognizer.location(in: view)) else { return }
+                  let view = recognizer.view as? UITextView, recognizer.state == .ended else { return }
+            let point = recognizer.location(in: view)
+            guard let position = view.closestPosition(to: point) else { return }
             let offset = view.offset(from: view.beginningOfDocument, to: position)
             let snapshot = view.attributedText.map { $0.copy() as? NSAttributedString ?? $0 }
                 ?? NSAttributedString(string: "")
-            parent.onTapTextOffset?(max(0, min(offset, snapshot.length)), snapshot, view.bounds.width)
+            if parent.noteFormatting, parent.tableAppearance == .libraryContent,
+               let hit = NativeTableAttachment.hitTest(point, in: view, near: offset) {
+                parent.onTapTextOffset?(hit.range.location, snapshot, view.bounds.width, hit.cell)
+            } else {
+                parent.onTapTextOffset?(max(0, min(offset, snapshot.length)), snapshot, view.bounds.width, nil)
+            }
         }
     }
 
@@ -1695,7 +1730,8 @@ enum NativeRichTextDisplayRenderer {
         guard let data = Data(base64Encoded: encoded), data.count <= 48 * 1024,
               let table = try? JSONDecoder().decode(RichTextTable.self, from: data),
               (1...16).contains(table.rowCount),
-              (1...8).contains(table.columnCount),
+              (1...RichTextTable.maximumColumns).contains(table.columnCount),
+              (!table.isFlowchart || table.columnCount == 2),
               table.cells.allSatisfy({ $0.count == table.columnCount && $0.allSatisfy { $0.utf8.count <= 512 } })
         else { return nil }
         return table
@@ -1745,6 +1781,7 @@ private final class RichTextKeyboardAccessoryView: UIView {
 private final class RichTextPasteTextView: UITextView {
     var onPaste: ((UITextView) -> Bool)?
     var onCopy: ((UITextView, Bool) -> Void)?
+    var copyStructuredSelection: ((UITextView) -> Bool)?
     var onLayout: ((UITextView) -> Void)?
     var onBoundsChange: ((UITextView) -> Void)?
     private var lastReportedBoundsSize: CGSize?
@@ -1772,6 +1809,7 @@ private final class RichTextPasteTextView: UITextView {
     }
 
     override func copy(_ sender: Any?) {
+        if copyStructuredSelection?(self) == true { return }
         onCopy?(self, false)
         super.copy(sender)
         onCopy?(self, true)
@@ -1789,6 +1827,24 @@ private final class RichTextPasteTextView: UITextView {
 }
 
 @MainActor
+private final class RichTextInlineBlockField: UITextView {
+    var switchField: ((Int) -> Void)?
+    var reportedError: String?
+
+    override var keyCommands: [UIKeyCommand]? {
+        let next = UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(changeField(_:)))
+        let previous = UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(changeField(_:)))
+        next.wantsPriorityOverSystemBehavior = true
+        previous.wantsPriorityOverSystemBehavior = true
+        return [next, previous] + (super.keyCommands ?? [])
+    }
+
+    @objc private func changeField(_ command: UIKeyCommand) {
+        switchField?(command.modifierFlags.contains(.shift) ? -1 : 1)
+    }
+}
+
+@MainActor
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
@@ -1802,6 +1858,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     let onFocusReady: ((UITextView) -> Void)?
     let onCaretChange: ((UITextView) -> Void)?
+    let onInlineBlockError: (String) -> Void
     let keyboardAccessory: AnyView
     let keyboardAccessoryHeight: CGFloat
     let keyboardAccessoryState: RichTextKeyboardAccessoryState
@@ -1813,12 +1870,15 @@ private struct RichTextTextView: UIViewRepresentable {
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
     var initialSelectionWidth: CGFloat? = nil
+    var initialBlockCell: RichTextTable.Cell? = nil
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
     var editorDocumentID: String? = nil
     var editorSessionID: UUID = UUID()
     var usesLazyHTMLInitialization = false
+
+    fileprivate var usesInlineBlockEditing: Bool { noteFormatting && tableAppearance == .libraryContent }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -1830,10 +1890,14 @@ private struct RichTextTextView: UIViewRepresentable {
         view.onCopy = { [weak coordinator = context.coordinator] textView, completed in
             coordinator?.logNoteCopy(textView, completed: completed)
         }
+        view.copyStructuredSelection = { [weak coordinator = context.coordinator] textView in
+            coordinator?.copyFlowchartSelection(textView) ?? false
+        }
         view.delegate = context.coordinator
         view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.onLayout = { [weak coordinator = context.coordinator] textView in
             coordinator?.updateNativeTableWidths(in: textView)
+            coordinator?.positionInlineBlockField(in: textView)
         }
         view.onBoundsChange = { [weak coordinator = context.coordinator] textView in
             guard coordinator?.parent.noteFormatting == true else { return }
@@ -1858,7 +1922,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         let tableTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleNativeTableTap(_:)))
-        tableTap.cancelsTouchesInView = false
+        tableTap.cancelsTouchesInView = usesInlineBlockEditing
         tableTap.delaysTouchesBegan = false
         tableTap.delaysTouchesEnded = false
         tableTap.delegate = context.coordinator
@@ -1902,6 +1966,8 @@ private struct RichTextTextView: UIViewRepresentable {
             context.coordinator.rememberSelection(caret)
             let focusEditor = {
                 guard view.window != nil else { return false }
+                if let cell = initialBlockCell,
+                   context.coordinator.focusInitialBlockCell(cell, offset: offset, in: view) { return true }
                 guard view.becomeFirstResponder() else { return false }
                 view.scrollRangeToVisible(caret)
                 view.window?.layoutIfNeeded()
@@ -1956,6 +2022,7 @@ private struct RichTextTextView: UIViewRepresentable {
             )
         }
         if replacingDocumentContent {
+            context.coordinator.removeInlineBlockField()
             if managedDocumentChanged { view.resignFirstResponder() }
             if let preparedInitialAttributedText, preparedInitialHTML == html {
                 view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
@@ -2026,6 +2093,12 @@ private struct RichTextTextView: UIViewRepresentable {
         private var hasManagedDocumentIdentity = false
         private var managedDocumentID: String?
         private var managedSessionID: UUID?
+        private struct InlineBlockEdit {
+            let target: RichTextTableEditTarget
+            let cell: RichTextTable.Cell
+            let field: RichTextInlineBlockField
+        }
+        private var inlineBlockEdit: InlineBlockEdit?
         init(parent: RichTextTextView) { self.parent = parent }
 
         func rememberManagedDocumentIdentity(isManaged: Bool, documentID: String?, sessionID: UUID) {
@@ -2229,6 +2302,10 @@ private struct RichTextTextView: UIViewRepresentable {
                 },
                 compositionCommitHandler: { [weak self, weak view] in
                     guard let self, let view else { return }
+                    if self.inlineBlockEdit != nil {
+                        _ = self.commitInlineBlockField(in: view)
+                        return
+                    }
                     guard view.markedTextRange != nil else { return }
                     let revisionBeforeCommit = self.documentRevision
                     view.unmarkText()
@@ -2254,6 +2331,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 },
                 endEditingHandler: { [weak self, weak view] completion in
                     guard let self, let view else { completion(nil); return }
+                    guard self.closeInlineBlockField(in: view) else { completion(nil); return }
                     if view.isFirstResponder {
                         self.pendingEndEditingCompletion = completion
                         if !view.resignFirstResponder() {
@@ -2297,6 +2375,10 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            if textView is RichTextInlineBlockField {
+                connectedSession?.setComposingText(textView.markedTextRange != nil)
+                return
+            }
             userEditRevision &+= 1
             let isComposing = textView.markedTextRange != nil
             connectedSession?.setComposingText(isComposing)
@@ -2326,6 +2408,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            guard !(textView is RichTextInlineBlockField) else { return }
             rememberSelection(textView.selectedRange)
             scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true, updatesLayout: false)
             if parent.noteFormatting { parent.onCaretChange?(textView) }
@@ -2333,6 +2416,11 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
+            if textView is RichTextInlineBlockField {
+                guard let edit = inlineBlockEdit, edit.field === textView, let body = textView.superview as? UITextView else { return }
+                _ = closeInlineBlockField(in: body)
+                return
+            }
             let latestHTML = publishNow(textView)
             let completion = pendingEndEditingCompletion
             pendingEndEditingCompletion = nil
@@ -2344,6 +2432,11 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            if textView is RichTextInlineBlockField {
+                parent.onCaretChange?(textView)
+                return
+            }
+            guard inlineBlockEdit == nil else { return }
             let isComposing = textView.markedTextRange != nil
             connectedSession?.setComposingText(isComposing)
             guard !isComposing else { return }
@@ -2369,6 +2462,8 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             let isLocked = connectedSession?.isInputLocked == true
+            if textView is RichTextInlineBlockField { return !isLocked }
+            guard closeInlineBlockField(in: textView) else { return false }
             if parent.usesStabilizedInlineNoteMeasurement, parent.editorSession != nil {
                 let action = text.isEmpty ? "delete" : (text == "\n" ? "newline" : "insert")
                 LibraryPerformanceLog.event(
@@ -2425,7 +2520,9 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         @discardableResult
-        private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) -> Bool {
+        private func replaceAttributed(
+            _ replacement: NSAttributedString, in range: NSRange, view: UITextView, preservesSelection: Bool = false
+        ) -> Bool {
             NativeRichTextPastePolicy.replace(
                 replacement,
                 in: range,
@@ -2433,7 +2530,9 @@ private struct RichTextTextView: UIViewRepresentable {
                 undoManager: view.undoManager,
                 onReplacement: { [weak self, weak view] replacementRange, replacedText in
                     guard let self, let view else { return }
-                    view.selectedRange = NSRange(location: replacementRange.location + replacedText.length, length: 0)
+                    if !preservesSelection || !self.validSelection(view.selectedRange, in: view) {
+                        view.selectedRange = NSRange(location: replacementRange.location + replacedText.length, length: 0)
+                    }
                     if self.parent.noteFormatting {
                         self.measuredHeightNeedsRefresh = true
                         self.forcedNoteHeightMeasurement = (
@@ -2449,7 +2548,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func handlePaste(_ textView: UITextView) -> Bool {
-            guard connectedSession?.isInputLocked != true else { return true }
+            guard connectedSession?.isInputLocked != true, closeInlineBlockField(in: textView) else { return true }
             guard textView.markedTextRange == nil else { return false }
             let range = textView.selectedRange
             if parent.noteFormatting {
@@ -2640,6 +2739,13 @@ private struct RichTextTextView: UIViewRepresentable {
                 let plainText = plainTypes.compactMap { type in
                     item[type].flatMap(Self.stringRepresentation)
                 }.first
+
+                if let htmlValue = item[UTType.html.identifier],
+                   let html = Self.stringRepresentation(htmlValue),
+                   html.contains("[[NATIVE_TABLE:"),
+                   let imported = Self.attributedRepresentation(htmlValue, documentType: .html) {
+                    return finalizedRichPaste(imported, plainText: plainText, htmlData: nil, sourceHTML: html, htmlIsPrimary: true)
+                }
 
                 if let htmlValue = item[UTType.html.identifier],
                    let html = Self.stringRepresentation(htmlValue),
@@ -3062,6 +3168,7 @@ private struct RichTextTextView: UIViewRepresentable {
             to view: UITextView,
             tableEditTarget: RichTextTableEditTarget? = nil
         ) -> Result<Void, NativeRichTextEditorError>? {
+            guard closeInlineBlockField(in: view) else { return .failure(.tableTargetChanged) }
             let revisionBeforeCommand = documentRevision
             let range: NSRange
             if case .image(_, let target) = command {
@@ -3099,7 +3206,15 @@ private struct RichTextTextView: UIViewRepresentable {
             case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .table(table):
-                tableResult = upsertTable(table, view: view, target: tableEditTarget)
+                let result = upsertTable(table, view: view, target: tableEditTarget)
+                tableResult = result
+                if case .success = result, parent.usesInlineBlockEditing,
+                   tableEditTarget?.attachmentInstanceID == nil, let target = parent.tableEditTarget {
+                    DispatchQueue.main.async { [weak self, weak view] in
+                        guard let self, let view else { return }
+                        self.editInlineBlock(at: target, cell: .init(row: 0, column: 0), in: view)
+                    }
+                }
                 restoreSelection = false
             case let .image(dataURL, target):
                 imageResult = insertImage(dataURL, target: target, view: view)
@@ -3182,7 +3297,7 @@ private struct RichTextTextView: UIViewRepresentable {
             interaction: UITextItemInteraction
         ) -> Bool {
             guard let tableAttachment = textAttachment as? NativeTableAttachment else { return true }
-            openTableEditor(tableAttachment, range: characterRange)
+            if !parent.usesInlineBlockEditing { openTableEditor(tableAttachment, range: characterRange) }
             return false
         }
 
@@ -3191,11 +3306,281 @@ private struct RichTextTextView: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool { true }
 
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard parent.usesInlineBlockEditing, let body = gestureRecognizer.view as? UITextView else { return true }
+            let point = gestureRecognizer.location(in: body)
+            if inlineBlockEdit?.field.frame.contains(point) == true { return false }
+            return NativeTableAttachment.hitTest(point, in: body) != nil
+        }
+
         @objc func handleNativeTableTap(_ recognizer: UITapGestureRecognizer) {
-            guard recognizer.state == .ended,
-                  let view = recognizer.view as? UITextView,
-                  let match = tableAttachment(at: recognizer.location(in: view), in: view) else { return }
-            openTableEditor(match.attachment, range: match.range)
+            guard recognizer.state == .ended, let view = recognizer.view as? UITextView else { return }
+            let point = recognizer.location(in: view)
+            if parent.usesInlineBlockEditing {
+                guard let hit = NativeTableAttachment.hitTest(point, in: view) else { return }
+                editInlineBlock(
+                    at: makeTableEditTarget(for: hit.attachment, range: hit.range),
+                    cell: hit.cell, in: view, caretNear: point
+                )
+            } else if let match = tableAttachment(at: point, in: view) {
+                openTableEditor(match.attachment, range: match.range)
+            }
+        }
+
+        func focusInitialBlockCell(_ cell: RichTextTable.Cell, offset: Int, in body: UITextView) -> Bool {
+            guard parent.usesInlineBlockEditing, (0..<body.textStorage.length).contains(offset),
+                  let attachment = body.textStorage.attribute(.attachment, at: offset, effectiveRange: nil) as? NativeTableAttachment
+            else { return false }
+            let target = makeTableEditTarget(for: attachment, range: NSRange(location: offset, length: 1))
+            editInlineBlock(at: target, cell: cell, in: body)
+            return inlineBlockEdit?.field.isFirstResponder == true
+        }
+
+        private func inlineAttachment(
+            at target: RichTextTableEditTarget, in body: UITextView
+        ) -> NativeTableAttachment? {
+            guard target.documentID == parent.editorDocumentID,
+                  target.sessionID == parent.editorSessionID,
+                  let attachmentID = target.attachmentInstanceID,
+                  target.range.location < body.textStorage.length,
+                  validSelection(target.range, in: body),
+                  let attachment = body.textStorage.attribute(.attachment, at: target.range.location, effectiveRange: nil) as? NativeTableAttachment,
+                  attachment.instanceID == attachmentID else { return nil }
+            return attachment
+        }
+
+        func positionInlineBlockField(in body: UITextView) {
+            guard let edit = inlineBlockEdit,
+                  let attachment = inlineAttachment(at: edit.target, in: body),
+                  let blockFrame = attachment.frame(in: body, at: edit.target.range.location),
+                  let fieldFrame = attachment.frame(for: edit.cell) else { return }
+            let frame = fieldFrame.offsetBy(dx: blockFrame.minX, dy: blockFrame.minY)
+            if edit.field.frame != frame { edit.field.frame = frame }
+        }
+
+        private func editInlineBlock(
+            at target: RichTextTableEditTarget,
+            cell: RichTextTable.Cell,
+            in body: UITextView,
+            caretNear point: CGPoint? = nil
+        ) {
+            guard connectedSession?.isInputLocked != true else { return }
+            if let existing = inlineBlockEdit, existing.target.attachmentInstanceID == target.attachmentInstanceID,
+               existing.cell == cell {
+                existing.field.becomeFirstResponder()
+                return
+            }
+            guard closeInlineBlockField(in: body),
+                  let attachment = inlineAttachment(at: target, in: body),
+                  attachment.table.contains(cell),
+                  attachment.frame(for: cell) != nil else { return }
+
+            let field = RichTextInlineBlockField(frame: .zero, textContainer: nil)
+            let isFlowchart = attachment.table.isFlowchart
+            field.isScrollEnabled = true
+            field.textContainer.lineFragmentPadding = 0
+            field.textContainerInset = isFlowchart ? .zero : UIEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
+            field.textContainer.lineBreakMode = .byWordWrapping
+            field.font = .systemFont(
+                ofSize: isFlowchart ? (cell.column == 0 ? 15 : 13) : 12,
+                weight: (isFlowchart ? cell.column == 0 : cell.row == 0) ? .semibold : .regular
+            )
+            field.textAlignment = isFlowchart ? .center : .natural
+            field.textColor = isFlowchart && cell.column == 1 ? .secondaryLabel : .label
+            let content = attachment.content(for: cell)
+            if content.length > 0 { field.attributedText = content }
+            field.backgroundColor = UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.16, green: 0.21, blue: 0.28, alpha: 1)
+                    : UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)
+            }
+            field.layer.borderWidth = 1
+            field.layer.borderColor = UIColor.systemBlue.cgColor
+            field.layer.cornerRadius = 3
+            field.accessibilityLabel = isFlowchart
+                ? "第 \(cell.row + 1) 步\(cell.column == 0 ? "标题" : "说明")"
+                : "第 \(cell.row + 1) 行第 \(cell.column + 1) 列"
+            field.inputAccessoryView = inlineBlockToolbar(for: attachment.table, cell: cell, body: body)
+            field.switchField = { [weak self, weak body] direction in
+                guard let self, let body else { return }
+                self.switchInlineBlockField(direction: direction, in: body)
+            }
+
+            inlineBlockEdit = InlineBlockEdit(target: target, cell: cell, field: field)
+            body.addSubview(field)
+            positionInlineBlockField(in: body)
+            field.delegate = self
+            if let point,
+               let position = field.closestPosition(to: field.convert(point, from: body)),
+               let range = field.textRange(from: position, to: position) {
+                field.selectedTextRange = range
+            } else {
+                field.selectedRange = NSRange(location: field.textStorage.length, length: 0)
+            }
+            guard field.becomeFirstResponder() else {
+                removeInlineBlockField()
+                return
+            }
+            if body.isScrollEnabled { body.scrollRectToVisible(field.frame, animated: false) }
+            parent.onCaretChange?(field)
+        }
+
+        private func inlineBlockToolbar(
+            for table: RichTextTable, cell: RichTextTable.Cell, body: UITextView
+        ) -> UIToolbar {
+            let items: [(RichTextTable.StructureAction, String, String)] = table.isFlowchart
+                ? [(.addRow, "增加步骤", "plus"), (.removeRow, "删除步骤", "minus"),
+                   (.moveUp, "上移步骤", "arrow.up"), (.moveDown, "下移步骤", "arrow.down")]
+                : [(.addRow, "增加行", "plus.rectangle.on.rectangle"), (.removeRow, "删除行", "minus.rectangle"),
+                   (.addColumn, "增加列", "rectangle.split.3x1"), (.removeColumn, "删除列", "rectangle.split.2x1")]
+            let actions = items.map { action, title, symbol in
+                UIAction(
+                    title: title, image: UIImage(systemName: symbol), attributes: table.canApply(action, at: cell) ? [] : .disabled
+                ) { [weak self, weak body] _ in
+                    guard let self, let body else { return }
+                    self.applyInlineStructureAction(action, in: body)
+                }
+            }
+            let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: body.bounds.width, height: 44))
+            bar.autoresizingMask = [.flexibleWidth]
+            let menu = UIBarButtonItem(
+                title: table.isFlowchart ? "流程图操作" : "表格操作",
+                image: nil, primaryAction: nil, menu: UIMenu(children: actions)
+            )
+            let done = UIAction(title: table.isFlowchart ? "完成步骤输入" : "完成单元格") { [weak self, weak body] _ in
+                guard let self, let body else { return }
+                self.returnToBody(in: body)
+            }
+            bar.items = [
+                menu,
+                UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+                UIBarButtonItem(title: done.title, image: nil, primaryAction: done, menu: nil)
+            ]
+            return bar
+        }
+
+        private func switchInlineBlockField(direction: Int, in body: UITextView) {
+            guard let edit = inlineBlockEdit, let attachment = inlineAttachment(at: edit.target, in: body) else { return }
+            let fields = attachment.table.cells.indices.flatMap { row in
+                attachment.table.cells[row].indices.map { RichTextTable.Cell(row: row, column: $0) }
+            }
+            guard let index = fields.firstIndex(of: edit.cell) else { return }
+            let destination = index + direction
+            if fields.indices.contains(destination) {
+                editInlineBlock(at: edit.target, cell: fields[destination], in: body)
+            } else {
+                returnToBody(in: body)
+            }
+        }
+
+        private func returnToBody(in body: UITextView) {
+            guard let edit = inlineBlockEdit, closeInlineBlockField(in: body) else { return }
+            let source = body.textStorage.string as NSString
+            var offset = min(NSMaxRange(edit.target.range), source.length)
+            if offset < source.length, source.character(at: offset) == 10 { offset += 1 }
+            let range = NSRange(location: offset, length: 0)
+            body.selectedRange = range
+            rememberSelection(range)
+            body.becomeFirstResponder()
+        }
+
+        private func applyInlineStructureAction(_ action: RichTextTable.StructureAction, in body: UITextView) {
+            guard connectedSession?.isInputLocked != true,
+                  let edit = inlineBlockEdit, closeInlineBlockField(in: body),
+                  let attachment = inlineAttachment(at: edit.target, in: body) else { return }
+            var table = attachment.table
+            guard let destination = table.apply(action, at: edit.cell) else { return }
+            if case .failure(let error) = upsertTable(table, view: body, target: edit.target) {
+                parent.onInlineBlockError(error.localizedDescription)
+                editInlineBlock(at: edit.target, cell: edit.cell, in: body)
+                return
+            }
+            userEditRevision &+= 1
+            editInlineBlock(at: edit.target, cell: destination, in: body)
+        }
+
+        @discardableResult
+        private func commitInlineBlockField(in body: UITextView) -> Bool {
+            guard let edit = inlineBlockEdit else { return true }
+            if edit.field.markedTextRange != nil { edit.field.unmarkText() }
+            guard edit.field.markedTextRange == nil else {
+                connectedSession?.setComposingText(true)
+                return false
+            }
+            let text = edit.field.text ?? ""
+            guard let attachment = inlineAttachment(at: edit.target, in: body), attachment.table.contains(edit.cell) else {
+                return reportInlineBlockFailure("附件位置已变化，当前输入仍在原位。", edit: edit)
+            }
+            var table = attachment.table
+            if table.cells[edit.cell.row][edit.cell.column] != text {
+                guard text.utf8.count <= RichTextTable.maximumCellBytes else {
+                    return reportInlineBlockFailure("此格文字过长，请缩短后再保存。", edit: edit)
+                }
+                table.replaceText(at: edit.cell, with: text)
+                if case .failure(let error) = upsertTable(table, view: body, target: edit.target) {
+                    return reportInlineBlockFailure(error.localizedDescription, edit: edit)
+                }
+                userEditRevision &+= 1
+            }
+            edit.field.layer.borderColor = UIColor.systemBlue.cgColor
+            edit.field.reportedError = nil
+            connectedSession?.setComposingText(false)
+            return true
+        }
+
+        private func reportInlineBlockFailure(_ message: String, edit: InlineBlockEdit) -> Bool {
+            connectedSession?.setComposingText(true)
+            edit.field.layer.borderColor = UIColor.systemRed.cgColor
+            if edit.field.reportedError != message {
+                edit.field.reportedError = message
+                DispatchQueue.main.async { [weak self, weak field = edit.field] in
+                    guard let self, let field, self.inlineBlockEdit?.field === field else { return }
+                    self.parent.onInlineBlockError(message)
+                }
+            }
+            return false
+        }
+
+        private func closeInlineBlockField(in body: UITextView) -> Bool {
+            guard inlineBlockEdit != nil else { return true }
+            guard commitInlineBlockField(in: body) else { return false }
+            removeInlineBlockField()
+            return true
+        }
+
+        func removeInlineBlockField() {
+            guard let edit = inlineBlockEdit else { return }
+            inlineBlockEdit = nil
+            edit.field.delegate = nil
+            edit.field.resignFirstResponder()
+            edit.field.removeFromSuperview()
+            connectedSession?.setComposingText(false)
+        }
+
+        func copyFlowchartSelection(_ view: UITextView) -> Bool {
+            let range = view.selectedRange
+            guard range.length > 0, validSelection(range, in: view) else { return false }
+            let selected = view.textStorage.attributedSubstring(from: range)
+            let plainText = NSMutableString(string: selected.string)
+            var containsFlowchart = false
+            var replacements: [(NSRange, String)] = []
+            selected.enumerateAttribute(.attachment, in: NSRange(location: 0, length: selected.length)) { value, range, _ in
+                guard let attachment = value as? NSTextAttachment else { return }
+                if let block = attachment as? NativeTableAttachment {
+                    containsFlowchart = containsFlowchart || block.table.isFlowchart
+                    replacements.append((range, block.table.plainText()))
+                } else {
+                    replacements.append((range, ""))
+                }
+            }
+            guard containsFlowchart else { return false }
+            for (range, text) in replacements.reversed() { plainText.replaceCharacters(in: range, with: text) }
+            let html = RichTextTextView.html(from: selected, noteFormatting: parent.noteFormatting)
+            UIPasteboard.general.items = [[
+                UTType.utf8PlainText.identifier: plainText as String,
+                UTType.html.identifier: Data(html.utf8)
+            ]]
+            return true
         }
 
         private func openTableEditor(_ attachment: NativeTableAttachment, range: NSRange) {
@@ -3272,8 +3657,7 @@ private struct RichTextTextView: UIViewRepresentable {
                       let start = view.position(from: view.beginningOfDocument, offset: character),
                       let end = view.position(from: start, offset: 1),
                       let textRange = view.textRange(from: start, to: end) else { continue }
-                let attachmentRect = view.firstRect(for: textRange)
-                if attachmentRect.insetBy(dx: -3, dy: -3).contains(point) {
+                if view.firstRect(for: textRange).insetBy(dx: -3, dy: -3).contains(point) {
                     return (attachment, range)
                 }
             }
@@ -3554,6 +3938,11 @@ private struct RichTextTextView: UIViewRepresentable {
                   target.documentID == parent.editorDocumentID else {
                 return .failure(.editorSessionChanged)
             }
+            if parent.usesInlineBlockEditing {
+                guard let encoded = try? JSONEncoder().encode(table), encoded.count <= 48 * 1024 else {
+                    return .failure(.tablePayloadTooLarge)
+                }
+            }
             let availableWidth = availableTableWidth(in: view)
             let attachment = NativeTableAttachment(
                 table: table,
@@ -3573,7 +3962,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     matches.append(range)
                 }
                 guard matches.count == 1, let existingRange = matches.first,
-                      replaceAttributed(replacement, in: existingRange, view: view) else {
+                      replaceAttributed(replacement, in: existingRange, view: view, preservesSelection: parent.usesInlineBlockEditing) else {
                     return .failure(.tableTargetChanged)
                 }
                 updateNativeTableWidths(in: view, force: true)
@@ -3589,7 +3978,16 @@ private struct RichTextTextView: UIViewRepresentable {
                       validSelection(target.range, in: view) else {
                     return .failure(.tableTargetChanged)
                 }
-                replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
+                let newline = NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
+                var blockOffset = target.range.location
+                if parent.usesInlineBlockEditing {
+                    let source = view.textStorage.string as NSString
+                    if blockOffset > 0, source.character(at: blockOffset - 1) != 10 {
+                        replacement.insert(newline, at: 0)
+                        blockOffset += 1
+                    }
+                }
+                replacement.append(newline)
                 guard replaceAttributed(replacement, in: target.range, view: view) else {
                     return .failure(.tableTargetChanged)
                 }
@@ -3598,7 +3996,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     documentID: target.documentID,
                     sessionID: target.sessionID,
                     attachmentInstanceID: attachment.instanceID,
-                    range: NSRange(location: target.range.location, length: 1),
+                    range: NSRange(location: blockOffset, length: 1),
                     revision: documentRevision
                 )
             }
@@ -4707,7 +5105,10 @@ private struct RichTextTextView: UIViewRepresentable {
             let marker = text.substring(with: match.range)
             guard encoded.utf8.count <= 64 * 1024,
                   let data = Data(base64Encoded: encoded),
-                  let table = try? JSONDecoder().decode(RichTextTable.self, from: data) else { continue }
+                  let table = try? JSONDecoder().decode(RichTextTable.self, from: data),
+                  !table.isFlowchart || ((1...RichTextTable.maximumRows).contains(table.rowCount)
+                    && table.cells.allSatisfy({ $0.count == 2 && $0.allSatisfy { $0.utf8.count <= RichTextTable.maximumCellBytes } }))
+            else { continue }
             value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
         }
         let imagePattern = #"\[\[NATIVE_IMAGE:([A-Za-z0-9+/=]+)\]\]"#
@@ -4869,6 +5270,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     let appearance: NativeRichTextTableAppearance
     private let originalMarker: String?
     private(set) var displayWidth: CGFloat
+    private var fieldFrames: [[CGRect]] = []
 
     init(
         table: RichTextTable,
@@ -4885,10 +5287,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         originalMarker = normalizedTable == table ? marker : nil
         self.displayWidth = max(80, displayWidth)
         super.init(data: nil, ofType: "com.kaogong.native-table")
-        let layout = Self.layout(normalizedTable, width: self.displayWidth, appearance: appearance)
-        image = Self.render(normalizedTable, layout: layout, width: self.displayWidth, appearance: appearance)
-        let height = layout.rowHeights.reduce(0, +)
-        bounds = CGRect(x: 0, y: -4, width: self.displayWidth, height: height)
+        redraw()
     }
 
     required init?(coder: NSCoder) { nil }
@@ -4908,10 +5307,145 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         let updatedWidth = max(80, floor(width))
         guard updatedWidth.isFinite, abs(updatedWidth - displayWidth) > 0.5 else { return false }
         displayWidth = updatedWidth
-        let layout = Self.layout(table, width: displayWidth, appearance: appearance)
-        image = Self.render(table, layout: layout, width: displayWidth, appearance: appearance)
-        bounds = CGRect(x: 0, y: -4, width: displayWidth, height: layout.rowHeights.reduce(0, +))
+        redraw()
         return true
+    }
+
+    @MainActor
+    static func hitTest(
+        _ point: CGPoint, in view: UITextView, near offset: Int? = nil
+    ) -> (attachment: NativeTableAttachment, range: NSRange, cell: RichTextTable.Cell)? {
+        let closest = offset ?? view.closestPosition(to: point).map {
+            view.offset(from: view.beginningOfDocument, to: $0)
+        }
+        guard let closest else { return nil }
+        for character in [closest, closest - 1, closest - 2, closest + 1]
+            where (0..<view.textStorage.length).contains(character) {
+            guard let attachment = view.textStorage.attribute(.attachment, at: character, effectiveRange: nil) as? NativeTableAttachment,
+                  let frame = attachment.frame(in: view, at: character),
+                  let cell = attachment.cell(at: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
+            else { continue }
+            return (attachment, NSRange(location: character, length: 1), cell)
+        }
+        return nil
+    }
+
+    @MainActor
+    func frame(in view: UITextView, at offset: Int) -> CGRect? {
+        guard let start = view.position(from: view.beginningOfDocument, offset: offset),
+              let end = view.position(from: start, offset: 1),
+              let range = view.textRange(from: start, to: end) else { return nil }
+        let rect = view.firstRect(for: range)
+        guard !rect.isNull, !rect.isInfinite, rect.width > 0 else { return nil }
+        return CGRect(
+            x: rect.minX, y: rect.minY + max(0, (rect.height - bounds.height) / 2),
+            width: bounds.width, height: bounds.height
+        )
+    }
+
+    func frame(for cell: RichTextTable.Cell) -> CGRect? {
+        guard fieldFrames.indices.contains(cell.row), fieldFrames[cell.row].indices.contains(cell.column) else { return nil }
+        return fieldFrames[cell.row][cell.column]
+    }
+
+    func cell(at point: CGPoint) -> RichTextTable.Cell? {
+        for (row, fields) in fieldFrames.enumerated() {
+            if let column = fields.firstIndex(where: { $0.contains(point) }) {
+                return RichTextTable.Cell(row: row, column: column)
+            }
+        }
+        return nil
+    }
+
+    func content(for cell: RichTextTable.Cell) -> NSAttributedString {
+        if table.isFlowchart {
+            return Self.flowText(table.cells[cell.row][cell.column], title: cell.column == 0)
+        }
+        return Self.cellAttributedString(table, row: cell.row, column: cell.column, appearance: appearance)
+    }
+
+    private func redraw() {
+        let height: CGFloat
+        if table.isFlowchart, table.columnCount == 2, table.cells.allSatisfy({ $0.count == 2 }) {
+            let (flowHeight, frames, flowImage) = Self.renderFlowchart(table, width: displayWidth)
+            height = flowHeight
+            fieldFrames = frames
+            image = flowImage
+        } else {
+            let layout = Self.layout(table, width: displayWidth, appearance: appearance)
+            height = layout.rowHeights.reduce(0, +)
+            var y: CGFloat = 0
+            fieldFrames = layout.rowHeights.map { rowHeight in
+                var x: CGFloat = 0
+                let fields = layout.columnWidths.map { columnWidth in
+                    let frame = CGRect(x: x, y: y, width: columnWidth, height: rowHeight)
+                    x += columnWidth
+                    return frame
+                }
+                y += rowHeight
+                return fields
+            }
+            image = Self.render(table, layout: layout, width: displayWidth, appearance: appearance)
+        }
+        bounds = CGRect(x: 0, y: -4, width: displayWidth, height: max(1, height))
+    }
+
+    private static func renderFlowchart(
+        _ table: RichTextTable, width: CGFloat
+    ) -> (CGFloat, [[CGRect]], UIImage) {
+        let inset: CGFloat = 10
+        let gap: CGFloat = 24
+        let textWidth = max(1, width - inset * 2)
+        let options: NSStringDrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+        var rows: [[CGRect]] = []
+        var y: CGFloat = inset
+        for (index, step) in table.cells.enumerated() {
+            let title = flowText(step[0].isEmpty ? "步骤 \(index + 1)" : step[0], title: true)
+            let detail = flowText(step[1], title: false)
+            let titleHeight = max(20, ceil(title.boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: options, context: nil
+            ).height))
+            let detailHeight = max(20, ceil(detail.boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude), options: options, context: nil
+            ).height))
+            let first = CGRect(x: inset, y: y, width: textWidth, height: titleHeight)
+            let second = CGRect(x: inset, y: first.maxY + 4, width: textWidth, height: detailHeight)
+            rows.append([first, second])
+            y = second.maxY + inset + gap + inset
+        }
+        let height = y - gap - inset
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = min(format.scale, 4096 / max(height, width))
+        let rendered = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { _ in
+            for (index, fields) in rows.enumerated() {
+                let first = fields[0], second = fields[1]
+                let card = CGRect(x: 0, y: first.minY - inset, width: width, height: second.maxY - first.minY + inset * 2)
+                UIColor.systemGray6.setFill()
+                UIBezierPath(roundedRect: card, cornerRadius: 12).fill()
+                let step = table.cells[index]
+                flowText(step[0].isEmpty ? "步骤 \(index + 1)" : step[0], title: true)
+                    .draw(with: first, options: options, context: nil)
+                flowText(step[1], title: false).draw(with: second, options: options, context: nil)
+                if index + 1 < rows.count {
+                    flowText("↓", title: false).draw(
+                        with: CGRect(x: 0, y: card.maxY + 3, width: width, height: gap),
+                        options: options, context: nil
+                    )
+                }
+            }
+        }
+        return (height, rows, rendered)
+    }
+
+    private static func flowText(_ text: String, title: Bool) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        return NSAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: title ? 15 : 13, weight: title ? .semibold : .regular),
+            .foregroundColor: title ? UIColor.label : UIColor.secondaryLabel,
+            .paragraphStyle: paragraph
+        ])
     }
 
     var marker: String? {

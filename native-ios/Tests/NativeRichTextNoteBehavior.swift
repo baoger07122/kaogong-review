@@ -8,6 +8,8 @@ enum NativeRichTextNoteBehavior {
         verifyAppExportedNoteRemainsEditable()
         verifyCSSDerivedBoldAndMissingCSSSafety()
         try verifyTableCellBoldRangesRoundTrip()
+        verifyTableStructureEditsRemapFormatting()
+        try verifyFlowchartRoundTrip()
         verifyDefaultAndExplicitParagraphSpacing()
         verifyParagraphIndentRoundTripMetadata()
         verifyVersionedParagraphLayoutMetadata()
@@ -134,6 +136,55 @@ enum NativeRichTextNoteBehavior {
         let encoded = try JSONEncoder().encode(table)
         let decoded = try JSONDecoder().decode(RichTextTable.self, from: encoded)
         precondition(decoded.cellBoldRanges == [range], "table bold ranges must remain attached to the same cell after save and reload")
+    }
+
+    private static func verifyTableStructureEditsRemapFormatting() {
+        var table = RichTextTable(
+            cells: [["项目", "解释"], ["一", "正文加粗"], ["二", "释义"]],
+            cellBoldRanges: [
+                NativeRichTextPastedBoldRange(row: 1, column: 1, location: 2, length: 2),
+                NativeRichTextPastedBoldRange(row: 2, column: 1, location: 0, length: 2)
+            ]
+        )
+        table.replaceText(at: .init(row: 1, column: 1), with: "改后的加粗")
+        precondition(table.cellBoldRanges?.first?.location == 3, "edited prefix must move the unchanged bold suffix")
+        let inserted = table.apply(.addRow, at: .init(row: 1, column: 1))
+        precondition(inserted == RichTextTable.Cell(row: 2, column: 1) && table.cells[2] == ["", ""])
+        _ = table.apply(.removeColumn, at: .init(row: 3, column: 0))
+        precondition(table.cells == [["解释"], ["改后的加粗"], [""], ["释义"]])
+        precondition(table.cellBoldRanges?.map(\.row) == [1, 3] && table.cellBoldRanges?.map(\.column) == [0, 0],
+                     "inserting in the middle and deleting the first column must retain the bold cell identities")
+        precondition(table.apply(.removeColumn, at: .init(row: 2, column: 0)) == nil,
+                     "a table must retain its last column")
+        precondition(!table.isFlowchart)
+    }
+
+    private static func verifyFlowchartRoundTrip() throws {
+        var block = RichTextTable.flowchart()
+        block.replaceText(at: .init(row: 0, column: 0), with: "阅读材料")
+        block.replaceText(at: .init(row: 0, column: 1), with: "圈画关键信息")
+        block.replaceText(at: .init(row: 1, column: 0), with: "梳理层次")
+        let moved = block.apply(.moveUp, at: .init(row: 1, column: 0))
+        precondition(moved == RichTextTable.Cell(row: 0, column: 0))
+        let data = try JSONEncoder().encode(block)
+        let marker = "[[NATIVE_TABLE:\(data.base64EncodedString())]]"
+        let parsed = NativeRichTextFallbackParser.parseForEditing("<p>复盘</p><p>\(marker)</p><p>总结</p>")
+        guard let runs = parsed,
+              let attachment = runs.first(where: { if case .tableWithMarker = $0 { return true }
+                  return false }),
+              case let .tableWithMarker(encoded, originalMarker) = attachment,
+              let recovered = Data(base64Encoded: encoded) else {
+            preconditionFailure("mixed notes must retain the flowchart marker in the safe parser")
+        }
+        let decoded = try JSONDecoder().decode(RichTextTable.self, from: recovered)
+        precondition(originalMarker == marker && decoded == block && decoded.isFlowchart)
+        precondition(decoded.plainText() == "梳理层次\n\n阅读材料\n圈画关键信息")
+        precondition(!decoded.canApply(.addColumn, at: .init(row: 0, column: 0)))
+        let oldTable = RichTextTable()
+        let oldData = try JSONEncoder().encode(oldTable)
+        let decodedOldTable = try JSONDecoder().decode(RichTextTable.self, from: oldData)
+        precondition(decodedOldTable == oldTable && !decodedOldTable.isFlowchart,
+                     "a table without a presentation field must still decode as a table")
     }
 
     private static func verifyDefaultAndExplicitParagraphSpacing() {
