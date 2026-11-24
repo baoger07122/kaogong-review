@@ -24,6 +24,18 @@ enum LibraryMistakeTagRepository {
         return catalog(records: records)[scope] ?? []
     }
 
+    static func stageMembership(
+        _ name: String, subject: String, module: String, typeID: String?, isPresent: Bool,
+        records: [StoredRecord], context: ModelContext
+    ) throws {
+        let scope = LibraryMistakeTagPolicy.scopeKey(subject: subject, module: module, typeID: typeID)
+        var values = catalog(records: records)
+        let existing = values[scope] ?? []
+        guard existing.contains(name) != isPresent else { return }
+        values[scope] = isPresent ? existing + [name] : existing.filter { $0 != name }
+        try persist(values, records: records, context: context, save: false)
+    }
+
     static func migrateQuantityTypeScope(
         from sourceModule: String,
         to destinationModule: String?,

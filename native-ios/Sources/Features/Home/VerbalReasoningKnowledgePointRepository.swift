@@ -72,7 +72,18 @@ enum VerbalReasoningKnowledgePointRepository {
         loadGroups(records: records, subject: subject)
     }
 
-    private static func knownNames(records: [StoredRecord], subject: String) -> Set<String> {
+    static func stageKnowledgePointMembership(
+        _ name: String, subject: String, module: String, typeID: String, isPresent: Bool,
+        records: [StoredRecord], context: ModelContext
+    ) throws {
+        var values = loadGroups(records: records, subject: subject)
+        let existing = values[module]?[typeID] ?? []
+        guard existing.contains(name) != isPresent else { return }
+        values[module, default: [:]][typeID] = isPresent ? existing + [name] : existing.filter { $0 != name }
+        try persist(values, records: records, context: context, save: false, subject: subject)
+    }
+
+    static func knownNames(records: [StoredRecord], subject: String) -> Set<String> {
         var names = Set<String>()
         let legacyValue = records.first {
             $0.collection == "keyvalue" && $0.recordID == ManagedTagKind.knowledgePoint.recordID
@@ -402,7 +413,7 @@ enum VerbalReasoningKnowledgePointRepository {
         let updatedAt: Date
     }
 
-    private static func nameOnlyCandidates(
+    static func nameOnlyCandidates(
         name: String,
         source: LibraryKnowledgePointReference,
         records: [StoredRecord],

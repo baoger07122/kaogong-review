@@ -57,6 +57,16 @@ enum TagLibraryRepository {
         load(kind: kind, records: records)
     }
 
+    static func stageKnowledgePointMembership(
+        _ name: String, module: String, isPresent: Bool, records: [StoredRecord], context: ModelContext
+    ) throws {
+        var library = load(kind: .knowledgePoint, records: records)
+        let existing = library[module] ?? []
+        guard existing.contains(name) != isPresent else { return }
+        library[module] = isPresent ? existing + [name] : existing.filter { $0 != name }
+        try save(library, kind: .knowledgePoint, records: records, context: context, persist: false)
+    }
+
     static func add(
         _ name: String,
         kind: ManagedTagKind,

@@ -3414,12 +3414,15 @@ private struct RichTextTextView: UIViewRepresentable {
                let position = field.closestPosition(to: field.convert(point, from: body)),
                let range = field.textRange(from: position, to: position) {
                 field.selectedTextRange = range
-            } else {
-                field.selectedRange = NSRange(location: field.textStorage.length, length: 0)
             }
             guard field.becomeFirstResponder() else {
                 removeInlineBlockField()
                 return
+            }
+            if point == nil {
+                let end = NSRange(location: field.textStorage.length, length: 0)
+                field.selectedRange = end
+                field.scrollRangeToVisible(end)
             }
             if body.isScrollEnabled { body.scrollRectToVisible(field.frame, animated: false) }
             parent.onCaretChange?(field)
@@ -3428,12 +3431,12 @@ private struct RichTextTextView: UIViewRepresentable {
         private func inlineBlockToolbar(
             for table: RichTextTable, cell: RichTextTable.Cell, body: UITextView
         ) -> UIToolbar {
-            let items: [(RichTextTable.StructureAction, String, String)] = table.isFlowchart
+            let structureItems: [(RichTextTable.StructureAction, String, String)] = table.isFlowchart
                 ? [(.addRow, "增加步骤", "plus"), (.removeRow, "删除步骤", "minus"),
                    (.moveUp, "上移步骤", "arrow.up"), (.moveDown, "下移步骤", "arrow.down")]
                 : [(.addRow, "增加行", "plus.rectangle.on.rectangle"), (.removeRow, "删除行", "minus.rectangle"),
                    (.addColumn, "增加列", "rectangle.split.3x1"), (.removeColumn, "删除列", "rectangle.split.2x1")]
-            let actions = items.map { action, title, symbol in
+            let actions = structureItems.map { action, title, symbol in
                 UIAction(
                     title: title, image: UIImage(systemName: symbol), attributes: table.canApply(action, at: cell) ? [] : .disabled
                 ) { [weak self, weak body] _ in
@@ -3451,12 +3454,35 @@ private struct RichTextTextView: UIViewRepresentable {
                 guard let self, let body else { return }
                 self.returnToBody(in: body)
             }
-            bar.items = [
-                menu,
-                UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-                UIBarButtonItem(title: done.title, image: nil, primaryAction: done, menu: nil)
-            ]
+            let spacing = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+            var items = [menu, spacing]
+            if !table.isFlowchart {
+                items += [
+                    inlineVerticalNavigationButton(table: table, cell: cell, offset: -1, body: body),
+                    inlineVerticalNavigationButton(table: table, cell: cell, offset: 1, body: body),
+                    UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+                ]
+            }
+            items.append(UIBarButtonItem(title: done.title, image: nil, primaryAction: done, menu: nil))
+            bar.items = items
             return bar
+        }
+
+        private func inlineVerticalNavigationButton(
+            table: RichTextTable, cell: RichTextTable.Cell, offset: Int, body: UITextView
+        ) -> UIBarButtonItem {
+            let caption = offset < 0 ? "上一行单元格" : "下一行单元格"
+            let symbol = offset < 0 ? "chevron.up" : "chevron.down"
+            let destination = RichTextTable.Cell(row: cell.row + offset, column: cell.column)
+            let action = UIAction(title: caption, image: UIImage(systemName: symbol)) { [weak self, weak body] _ in
+                guard let self, let body, let edit = self.inlineBlockEdit, edit.cell == cell else { return }
+                // Navigation passes no touch position, so the editor places the caret after the text.
+                self.editInlineBlock(at: edit.target, cell: destination, in: body)
+            }
+            let button = UIBarButtonItem(title: nil, image: action.image, primaryAction: action, menu: nil)
+            button.accessibilityLabel = caption
+            button.isEnabled = table.contains(destination)
+            return button
         }
 
         private func switchInlineBlockField(direction: Int, in body: UITextView) {

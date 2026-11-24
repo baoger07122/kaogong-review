@@ -111,3 +111,53 @@ enum LibraryKnowledgePointReferencePolicy {
         return value.isEmpty ? nil : LibraryKnowledgePointReference(module: nil, name: value)
     }
 }
+
+enum LibraryTagCategoryReferencePolicy {
+    enum Plan: Equatable {
+        case unchanged
+        case ambiguous
+        case moved(knowledge: [LibraryKnowledgePointReference], mistakes: [LibraryKnowledgePointReference])
+    }
+
+    static func plan(
+        knowledge: [LibraryKnowledgePointReference],
+        mistakes: [LibraryKnowledgePointReference],
+        tag: LibraryKnowledgePointReference,
+        toMistakeTag: Bool,
+        isLocalModule: Bool,
+        localKnowledgeCandidates: [LibraryKnowledgePointReference],
+        destinationExists: Bool
+    ) -> Plan {
+        func isBareName(_ value: LibraryKnowledgePointReference) -> Bool {
+            isLocalModule && value.name == tag.name && value.module == nil && value.typeID == nil
+        }
+        func matchesSource(_ value: LibraryKnowledgePointReference) -> Bool {
+            value == tag || (isLocalModule && value.name == tag.name && value.module == nil
+                && value.typeID != nil && value.typeID == tag.typeID)
+        }
+        var updatedKnowledge = knowledge
+        var updatedMistakes = mistakes
+        let hasBareName = knowledge.contains(where: isBareName)
+        if toMistakeTag {
+            if hasBareName, localKnowledgeCandidates != [tag] { return .ambiguous }
+            updatedKnowledge.removeAll { matchesSource($0) || isBareName($0) }
+            guard updatedKnowledge != knowledge else { return .unchanged }
+            updatedMistakes.append(tag)
+        } else {
+            guard mistakes.contains(where: matchesSource) else { return .unchanged }
+            if hasBareName {
+                let previousCandidates = localKnowledgeCandidates.filter { $0 != tag }
+                if previousCandidates.count > 1 || (destinationExists && !previousCandidates.isEmpty) {
+                    return .ambiguous
+                }
+                updatedKnowledge = knowledge.compactMap { isBareName($0) ? previousCandidates.first : $0 }
+            }
+            updatedMistakes.removeAll(where: matchesSource)
+            updatedKnowledge.append(tag)
+        }
+        return .moved(
+            knowledge: LibraryKnowledgePointReferencePolicy.uniqueReferences(updatedKnowledge),
+            mistakes: LibraryKnowledgePointReferencePolicy.uniqueReferences(updatedMistakes)
+        )
+    }
+}

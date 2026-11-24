@@ -68,6 +68,8 @@ enum LibraryKnowledgePointReferenceBehavior {
         precondition(resolved.last?.module == nil && resolved.last?.typeID == nil,
                      "a same-named library entry must not be used to infer a legacy reference's module or type")
 
+        verifyCategoryMigration(typeA: typeA, typeB: typeB)
+
         var library: [String: Any] = [:]
         library = VerbalReasoningKnowledgePointLibraryPolicy.replacingTags(
             ["语境分析"], in: library, module: "逻辑填空", typeID: "type-a"
@@ -83,5 +85,38 @@ enum LibraryKnowledgePointReferenceBehavior {
             VerbalReasoningKnowledgePointLibraryPolicy.tags(from: library, module: "中心理解", typeID: "type-a").isEmpty,
             "same type IDs in a different module must remain isolated"
         )
+    }
+
+    private static func verifyCategoryMigration(
+        typeA: LibraryKnowledgePointReference, typeB: LibraryKnowledgePointReference
+    ) {
+        let bare = LibraryKnowledgePointReference(module: nil, name: typeA.name)
+        let typeOnly = LibraryKnowledgePointReference(module: nil, typeID: typeA.typeID, name: typeA.name)
+
+        let forward = LibraryTagCategoryReferencePolicy.plan(
+            knowledge: [typeA, typeB], mistakes: [typeA], tag: typeA, toMistakeTag: true,
+            isLocalModule: false, localKnowledgeCandidates: [typeA, typeB], destinationExists: true
+        )
+        precondition(forward == .moved(knowledge: [typeB], mistakes: [typeA]),
+                     "a qualified cross-module reference migrates without altering a same-named reference")
+
+        let uniqueLegacy = LibraryTagCategoryReferencePolicy.plan(
+            knowledge: [bare, typeOnly], mistakes: [], tag: typeA, toMistakeTag: true,
+            isLocalModule: true, localKnowledgeCandidates: [typeA], destinationExists: false
+        )
+        precondition(uniqueLegacy == .moved(knowledge: [], mistakes: [typeA]))
+
+        let ambiguousLegacy = LibraryTagCategoryReferencePolicy.plan(
+            knowledge: [bare], mistakes: [], tag: typeA, toMistakeTag: true,
+            isLocalModule: true, localKnowledgeCandidates: [typeA, typeB], destinationExists: false
+        )
+        precondition(ambiguousLegacy == .ambiguous)
+
+        let reverse = LibraryTagCategoryReferencePolicy.plan(
+            knowledge: [bare], mistakes: [typeA, typeB], tag: typeA, toMistakeTag: false,
+            isLocalModule: true, localKnowledgeCandidates: [typeA, typeB], destinationExists: false
+        )
+        precondition(reverse == .moved(knowledge: [typeB, typeA], mistakes: [typeB]),
+                     "an existing legacy association to the only prior label stays separate from the new reference")
     }
 }

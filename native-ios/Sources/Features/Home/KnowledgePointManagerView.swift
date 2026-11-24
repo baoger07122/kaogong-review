@@ -73,6 +73,7 @@ struct KnowledgePointManagerView: View {
     @State private var showsMigrationReview = false
     @State private var typeMoveInformation: String?
     @State private var mistakeTagTypeMove: MistakeTagTypeMove?
+    @State private var categoryMove: LibraryTagCategoryMigration.Preview?
     @State private var folderAnchors: [String: CGRect] = [:]
     @State private var groupMoveRequest: KnowledgePointGroupMoveRequest?
     @State private var showsTagDisplaySettings = false
@@ -361,6 +362,19 @@ struct KnowledgePointManagerView: View {
                                     Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
                                     Button { move(name, 1) } label: { Image(systemName: "chevron.down") }.disabled(index == tags.count - 1)
                                 }
+                                if kind.groupCategory != nil, subject.name != "申论" {
+                                    Menu {
+                                        Button(kind == .knowledgePoint ? "移到错因标签" : "移到考点") {
+                                            beginCategoryMove(name)
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .frame(minWidth: 40, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .accessibilityLabel("标签更多操作：\(name)")
+                                }
                                 Button { beginEdit(name) } label: { Image(systemName: "pencil") }
                                 Button { deletingName = name } label: { Image(systemName: "trash").foregroundStyle(AppTheme.danger) }
                             }
@@ -468,6 +482,18 @@ struct KnowledgePointManagerView: View {
                         cancelIdentifier: "cancel-move-mistake-tag-type",
                         onConfirm: { performMistakeTagTypeMove(mistakeTagTypeMove) },
                         onCancel: { self.mistakeTagTypeMove = nil }
+                    )
+                }
+                if let categoryMove {
+                    NativeConfirmationDialog(
+                        title: "移到\(categoryMove.direction.destination.rawValue)",
+                        message: categoryMoveMessage(categoryMove),
+                        confirmTitle: "移动",
+                        cancelTitle: "取消",
+                        confirmIdentifier: "confirm-tag-category-move",
+                        cancelIdentifier: "cancel-tag-category-move",
+                        onConfirm: { performCategoryMove(categoryMove) },
+                        onCancel: { self.categoryMove = nil }
                     )
                 }
                 if let deletingName {
@@ -920,6 +946,38 @@ struct KnowledgePointManagerView: View {
         }
     }
 
+    private func beginCategoryMove(_ name: String) {
+        let scope = LibraryTagCategoryMigration.Scope(subject: subject.name, module: module, typeID: selectedTypeID)
+        do {
+            categoryMove = try LibraryTagCategoryMigration.preview(
+                name: name, scope: scope, direction: kind == .knowledgePoint ? .toMistakeTag : .toKnowledgePoint,
+                records: records
+            )
+            statusMessage = nil
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func categoryMoveMessage(_ move: LibraryTagCategoryMigration.Preview) -> String {
+        let destination = move.direction.destination.rawValue
+        let mergeMessage = move.destinationExists ? "目标已有同名标签，将合并到该标签。" : ""
+        return "将“\(move.name)”移到「\(destination)」，保留当前科目、模块和题型。\(mergeMessage)\(move.affectedRecordIDs.count) 道错题的标签引用会同步更新。"
+    }
+
+    private func performCategoryMove(_ move: LibraryTagCategoryMigration.Preview) {
+        categoryMove = nil
+        do {
+            let currentRecords = try modelContext.fetch(FetchDescriptor<StoredRecord>())
+            let updatedRecordCount = try LibraryTagCategoryMigration.move(move, records: currentRecords, context: modelContext)
+            statusMessage = "已移到「\(move.direction.destination.rawValue)」，同步更新 \(updatedRecordCount) 道错题。"
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func typeMoveConfirmationMessage(_ move: KnowledgePointTypeMove) -> String {
         var message = "将考点“\(move.name)”从“\(move.preview.sourceTitle)”移动到“\(move.preview.destinationTitle)”。"
         if move.preview.destinationAlreadyExists {
@@ -968,6 +1026,7 @@ struct KnowledgePointManagerView: View {
         groupMoveRequest = nil
         typeMove = nil
         mistakeTagTypeMove = nil
+        categoryMove = nil
         showsMigrationReview = false
         migrationResolutions = [:]
     }
