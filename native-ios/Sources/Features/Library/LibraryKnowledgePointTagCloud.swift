@@ -65,47 +65,58 @@ struct LibraryKnowledgePointTagLayout: Layout {
 }
 
 struct LibraryKnowledgePointTagCloud: View {
-    private struct Tag {
-        let text: String
+    private struct TagGroup {
+        let points: [String]
         let kind: LibraryCardTopTag.Kind?
 
-        var accessibilityText: String {
+        func accessibilityText(for point: String) -> String {
             switch kind {
-            case .knowledgePoint: "考点，\(text)"
-            case .mistakeTag: "错因标签，\(text)"
-            case nil: text
+            case .knowledgePoint: "考点，\(point)"
+            case .mistakeTag: "错因标签，\(point)"
+            case nil: point
             }
         }
     }
 
     private static let accessorySpacing: CGFloat = 6
-    private static let bulbWidth: CGFloat = 11
+    private static let iconWidth: CGFloat = 11
 
-    private let tags: [Tag]
+    static var cardLeadingAccessoryWidth: CGFloat { iconWidth + accessorySpacing }
+
+    private let groups: [TagGroup]
     private let label: String?
-    private let showsKnowledgePointBulb: Bool
 
     init(points: [String], label: String? = nil) {
-        tags = points.compactMap { value in
-            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : Tag(text: text, kind: nil)
-        }
+        let visiblePoints = points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        groups = [TagGroup(points: visiblePoints, kind: nil)]
         self.label = label
-        showsKnowledgePointBulb = false
     }
 
     init(cardTags: [LibraryCardTopTag]) {
-        tags = cardTags.map { Tag(text: $0.text, kind: $0.kind) }
+        let kinds: [LibraryCardTopTag.Kind] = [.knowledgePoint, .mistakeTag]
+        groups = kinds.compactMap { kind in
+            let points = cardTags.filter { $0.kind == kind }.map(\.text)
+            return points.isEmpty ? nil : TagGroup(points: points, kind: kind)
+        }
         label = nil
-        showsKnowledgePointBulb = Self.cardLeadingAccessoryWidth(for: cardTags) > 0
-    }
-
-    static func cardLeadingAccessoryWidth(for tags: [LibraryCardTopTag]) -> CGFloat {
-        tags.contains(where: { $0.kind == .knowledgePoint }) ? bulbWidth + accessorySpacing : 0
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: Self.accessorySpacing) {
+        VStack(alignment: .leading, spacing: LibraryKnowledgePointTagLayout.rowSpacing) {
+            ForEach(groups.indices, id: \.self) { index in
+                tagGroup(groups[index])
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(groups.flatMap { group in
+            group.points.map { group.accessibilityText(for: $0) }
+        }.joined(separator: "、"))
+    }
+
+    private func tagGroup(_ group: TagGroup) -> some View {
+        let isKnowledgePoint = group.kind == .knowledgePoint
+        return HStack(alignment: .top, spacing: Self.accessorySpacing) {
             if let label {
                 Text("\(label)：")
                     .font(.system(size: 11, weight: .medium))
@@ -113,18 +124,15 @@ struct LibraryKnowledgePointTagCloud: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.top, 3)
             }
-            if showsKnowledgePointBulb {
-                Image(systemName: "lightbulb.min")
-                    .font(.system(size: 11, weight: .light))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: Self.bulbWidth)
+            if let kind = group.kind {
+                cardIcon(for: kind)
+                    .frame(width: Self.iconWidth, height: Self.iconWidth)
                     .padding(.top, 4)
                     .accessibilityHidden(true)
             }
-            LibraryKnowledgePointTagLayout(points: tags.map(\.text)) {
-                ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
-                    let isKnowledgePoint = tag.kind == .knowledgePoint
-                    Text(tag.text)
+            LibraryKnowledgePointTagLayout(points: group.points) {
+                ForEach(Array(group.points.enumerated()), id: \.offset) { _, point in
+                    Text(point)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(isKnowledgePoint
                             ? AppTheme.accent
@@ -137,13 +145,62 @@ struct LibraryKnowledgePointTagCloud: View {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .stroke(isKnowledgePoint ? AppTheme.accent.opacity(0.72) : Color.primary.opacity(0.15), lineWidth: 0.75)
                         }
-                        .accessibilityLabel(tag.accessibilityText)
+                        .accessibilityLabel(group.accessibilityText(for: point))
                 }
             }
             .accessibilityElement(children: .contain)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel(tags.map(\.accessibilityText).joined(separator: "、"))
+    }
+
+    @ViewBuilder
+    private func cardIcon(for kind: LibraryCardTopTag.Kind) -> some View {
+        switch kind {
+        case .knowledgePoint:
+            Image(systemName: "lightbulb.min")
+                .font(.system(size: 11, weight: .light))
+                .foregroundStyle(AppTheme.accent)
+        case .mistakeTag:
+            MistakeCorrectionPath()
+                .stroke(Color.secondary, style: StrokeStyle(lineWidth: 0.75, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+private struct MistakeCorrectionPath: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        path.addEllipse(in: CGRect(x: 4.5, y: 17.6, width: 3, height: 3))
+        path.move(to: CGPoint(x: 6, y: 17.6))
+        path.addLine(to: CGPoint(x: 6, y: 11.6))
+        path.addQuadCurve(to: CGPoint(x: 8.7, y: 8.9), control: CGPoint(x: 6, y: 8.9))
+        path.addLine(to: CGPoint(x: 18, y: 8.9))
+
+        path.move(to: CGPoint(x: 8.7, y: 8.9))
+        path.addQuadCurve(to: CGPoint(x: 11.4, y: 11.6), control: CGPoint(x: 11.4, y: 8.9))
+        path.addLine(to: CGPoint(x: 11.4, y: 13.85))
+        path.addQuadCurve(to: CGPoint(x: 13.9, y: 16.35), control: CGPoint(x: 11.4, y: 16.35))
+        path.addLine(to: CGPoint(x: 16.2, y: 16.35))
+
+        path.move(to: CGPoint(x: 16, y: 7))
+        path.addLine(to: CGPoint(x: 18, y: 8.9))
+        path.addLine(to: CGPoint(x: 16, y: 10.8))
+
+        path.move(to: CGPoint(x: 17.5, y: 14.7))
+        path.addLine(to: CGPoint(x: 20.6, y: 17.8))
+        path.move(to: CGPoint(x: 20.6, y: 14.7))
+        path.addLine(to: CGPoint(x: 17.5, y: 17.8))
+
+        path.move(to: CGPoint(x: 5.1, y: 5))
+        path.addLine(to: CGPoint(x: 7.25, y: 5))
+        path.move(to: CGPoint(x: 6.2, y: 3.9))
+        path.addLine(to: CGPoint(x: 6.2, y: 6.1))
+
+        return path.applying(CGAffineTransform(
+            a: rect.width / 24, b: 0,
+            c: 0, d: rect.height / 24,
+            tx: rect.minX, ty: rect.minY
+        ))
     }
 }

@@ -1374,11 +1374,10 @@ struct LibraryMasonryGrid: View {
         let displayedTitle = isLogicFill ? LibraryLogicComparisonLayout.preview(record.title) : record.title
         let titleLineLimit = isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         let titleLines = estimatedLineCount(displayedTitle, width: contentWidth, fontSize: 14, limit: titleLineLimit)
-        let knowledgePointAccessoryWidth = LibraryKnowledgePointTagCloud.cardLeadingAccessoryWidth(for: record.cardTopTags)
-        let knowledgePointsWidth = max(1, contentWidth - knowledgePointAccessoryWidth)
+        let tagTextWidth = max(1, contentWidth - LibraryKnowledgePointTagCloud.cardLeadingAccessoryWidth)
         let knowledgePointsHeight = LibraryKnowledgePointTagLayout.estimatedHeight(
             for: record.cardTopTagLabels,
-            width: knowledgePointsWidth
+            width: tagTextWidth
         )
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
