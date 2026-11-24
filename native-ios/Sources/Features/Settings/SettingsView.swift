@@ -156,6 +156,14 @@ struct SettingsView: View {
                 case .noteTypes: NoteTypeManagerView()
                 case .stickyTags: StickyTagManagerView()
                 case .xingceQuestionTypes: XingceQuestionTypeManagementView()
+                case .xingceQuestionTypeSubject(let name):
+                    if name == "数量关系" {
+                        QuantityQuestionTypeManagerView()
+                    } else if let subject = LibraryErrorTypeSubject(rawValue: name) {
+                        LibraryErrorTypeModulesView(subject: subject)
+                    } else {
+                        ContentUnavailableView("暂无题型目录", systemImage: "square.stack.3d.up")
+                    }
                 case .designSystem: NativeDesignSystemView()
                 }
             }

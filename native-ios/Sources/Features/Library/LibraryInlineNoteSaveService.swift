@@ -3,14 +3,6 @@ import CryptoKit
 import Foundation
 import UIKit
 
-struct LibraryInlineNoteDraftSnapshot: Codable, Equatable, Sendable {
-    let recordID: String
-    let baseVersion: String
-    let draftVersion: UInt64
-    let content: String
-    let updatedAt: Date
-}
-
 struct LibraryInlineNotePreparedSave: Sendable {
     let content: String
     let payload: Data
@@ -79,14 +71,15 @@ actor LibraryInlineNoteDraftStorage {
         return snapshot
     }
 
-    func write(_ snapshot: LibraryInlineNoteDraftSnapshot) throws {
+    @discardableResult
+    func write(_ snapshot: LibraryInlineNoteDraftSnapshot) throws -> LibraryInlineNoteDraftSnapshot? {
         let fileURL = try url(recordID: snapshot.recordID)
+        let existing = try? load(recordID: snapshot.recordID)
         if snapshot.draftVersion <= removedDraftVersions[snapshot.recordID, default: 0] {
-            return
+            return existing
         }
-        if let existing = try? load(recordID: snapshot.recordID),
-           existing.draftVersion > snapshot.draftVersion {
-            return
+        if let existing, existing.draftVersion >= snapshot.draftVersion {
+            return existing
         }
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
@@ -94,6 +87,7 @@ actor LibraryInlineNoteDraftStorage {
         )
         let data = try JSONEncoder().encode(snapshot)
         try data.write(to: fileURL, options: .atomic)
+        return snapshot
     }
 
     func removeIfMatching(recordID: String, draftVersion: UInt64) throws {
@@ -125,6 +119,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         let snapshot: LibraryInlineNoteDraftSnapshot
         let basePayload: Data?
         let collection: String
+        let expectedRecoveryDraft: LibraryInlineNoteDraftSnapshot?
         let commit: Commit
     }
 
@@ -154,10 +149,11 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         workers[recordID] != nil || !(queues[recordID]?.isEmpty ?? true)
     }
 
+    @discardableResult
     func persistRecoveryDraft(
         _ snapshot: LibraryInlineNoteDraftSnapshot,
         requiresBackgroundTime: Bool = false
-    ) async throws {
+    ) async throws -> LibraryInlineNoteDraftSnapshot? {
         recoveryDraftVersionHighWater[snapshot.recordID] = max(
             recoveryDraftVersionHighWater[snapshot.recordID, default: 0],
             snapshot.draftVersion
@@ -172,7 +168,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 endBackgroundExecutionIfIdle()
             }
         }
-        try await LibraryInlineNoteDraftStorage.shared.write(snapshot)
+        return try await LibraryInlineNoteDraftStorage.shared.write(snapshot)
     }
 
     func nextRecoveryDraftVersion(recordID: String, after version: UInt64) -> UInt64 {
@@ -317,6 +313,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         updatedAt: Date = .now,
         requiresBackgroundTime: Bool = false,
         requiresWrite: Bool = false,
+        expectedRecoveryDraft: LibraryInlineNoteDraftSnapshot? = nil,
         commit: @escaping Commit,
         completion: @escaping Completion = { _ in }
     ) {
@@ -347,6 +344,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 snapshot: snapshot,
                 basePayload: basePayload,
                 collection: collection,
+                expectedRecoveryDraft: expectedRecoveryDraft,
                 commit: commit
             )
         )
@@ -385,7 +383,9 @@ final class LibraryInlineNoteSaveService: ObservableObject {
             }
 
             do {
-                try await LibraryInlineNoteDraftStorage.shared.write(job.snapshot)
+                if job.expectedRecoveryDraft == nil {
+                    try await LibraryInlineNoteDraftStorage.shared.write(job.snapshot)
+                }
                 await Task.yield()
 
                 let chain = committedVersionChains[recordID]
@@ -413,6 +413,16 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 } else {
                     expectedVersion = job.snapshot.baseVersion
                 }
+                let cleanupVersion: UInt64
+                if let requested = job.expectedRecoveryDraft {
+                    guard let durableDraft = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                          durableDraft.confirmsDurableWrite(of: requested) else {
+                        throw LibraryInlineNoteSaveError.staleDraft
+                    }
+                    cleanupVersion = durableDraft.draftVersion
+                } else {
+                    cleanupVersion = job.snapshot.draftVersion
+                }
                 let receipt = try await job.commit(prepared, expectedVersion)
                 let committedVersion = receipt.version
 
@@ -431,7 +441,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 do {
                     try await LibraryInlineNoteDraftStorage.shared.removeIfMatching(
                         recordID: recordID,
-                        draftVersion: job.snapshot.draftVersion
+                        draftVersion: cleanupVersion
                     )
                 } catch {
                     LibraryPerformanceLog.event(
@@ -547,6 +557,20 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 baseNote: baseNote
             )
         }.value
+    }
+
+    nonisolated static func noteDigest(in payload: Data?) -> String? {
+        guard let payload, let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else {
+            return nil
+        }
+        return payloadDigest(Data(LibraryInlineNoteFinishPolicy.savedNote(in: object).utf8))
+    }
+
+    nonisolated static func verifiedNoteDigest(in payload: Data?, baseVersion: String) -> String? {
+        guard let payload, LibraryInlineNoteFinishPolicy.preparedBaseMatches(
+            baseVersion, payloadDigest: payloadDigest(payload)
+        ) else { return nil }
+        return noteDigest(in: payload)
     }
 
     private nonisolated static func payloadDigest(_ payload: Data) -> String {

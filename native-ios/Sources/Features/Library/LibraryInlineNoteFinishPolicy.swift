@@ -1,5 +1,30 @@
 import Foundation
 
+struct LibraryInlineNoteDraftSnapshot: Codable, Equatable, Sendable {
+    let recordID: String
+    let baseVersion: String
+    let draftVersion: UInt64
+    let content: String
+    let updatedAt: Date
+    var baseNoteDigest: String? = nil
+
+    func matchesBaseline(recordVersion: String, noteDigest: String?) -> Bool {
+        if baseVersion == recordVersion { return true }
+        if let split = baseVersion.lastIndex(of: ":"),
+           LibraryInlineNoteFinishPolicy.preparedBaseMatches(
+               recordVersion, payloadDigest: String(baseVersion[baseVersion.index(after: split)...])
+           ) { return true }
+        return baseNoteDigest != nil && baseNoteDigest == noteDigest
+    }
+
+    func confirmsDurableWrite(of requested: Self) -> Bool {
+        recordID == requested.recordID
+            && draftVersion >= requested.draftVersion
+            && content == requested.content
+            && matchesBaseline(recordVersion: requested.baseVersion, noteDigest: requested.baseNoteDigest)
+    }
+}
+
 struct LibraryInlineNoteFinishRevision: Equatable {
     let documentID: String
     let sessionID: UUID
@@ -20,7 +45,8 @@ enum LibraryInlineNoteFinishPolicy {
     }
 
     static func preparedBaseMatches(_ version: String, payloadDigest: String) -> Bool {
-        guard let separator = version.lastIndex(of: ":"), payloadDigest.count == 64 else { return false }
+        guard let separator = version.lastIndex(of: ":"),
+              payloadDigest.count == 64, payloadDigest.allSatisfy(\.isHexDigit) else { return false }
         return version[version.index(after: separator)...] == payloadDigest[...]
     }
 

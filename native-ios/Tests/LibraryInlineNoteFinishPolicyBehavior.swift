@@ -4,6 +4,7 @@ import Foundation
 enum LibraryInlineNoteFinishPolicyBehavior {
     static func main() {
         verifyMetadataRebaseWithTableNote()
+        verifyDurableDraftReceipts()
         let session = UUID()
         let before = LibraryInlineNoteFinishRevision(
             documentID: "record-203",
@@ -59,6 +60,49 @@ enum LibraryInlineNoteFinishPolicyBehavior {
         precondition(recovery.draft == after.html, "save failure must retain the final draft")
         precondition(recovery.keepsEditorOpen, "save failure must keep the editor available for retry")
         precondition(recovery.unlocksInput, "save failure must allow the retained draft to be edited")
+    }
+
+    private static func verifyDurableDraftReceipts() {
+        let originalNoteDigest = String(repeating: "a", count: 64)
+        let originalRecordVersion = "first:" + String(repeating: "b", count: 64)
+        let updatedRecordVersion = "second:" + String(repeating: "c", count: 64)
+        let shortNote = "<p>几点说明</p>"
+        let tableNote = "<table><tr><td>词义</td></tr></table>"
+        let requested = LibraryInlineNoteDraftSnapshot(
+            recordID: "error-39", baseVersion: originalRecordVersion, draftVersion: 4,
+            content: shortNote, updatedAt: .now, baseNoteDigest: originalNoteDigest
+        )
+        let newer = LibraryInlineNoteDraftSnapshot(
+            recordID: "error-39", baseVersion: updatedRecordVersion, draftVersion: 5,
+            content: shortNote, updatedAt: .now, baseNoteDigest: originalNoteDigest
+        )
+        precondition(newer.confirmsDurableWrite(of: requested),
+                     "a newer copy of the same edit and original note satisfies the recovery write")
+        precondition(!requested.confirmsDurableWrite(of: newer), "an older draft cannot satisfy a newer write")
+        let differentContent = LibraryInlineNoteDraftSnapshot(
+            recordID: newer.recordID, baseVersion: newer.baseVersion, draftVersion: 6,
+            content: tableNote, updatedAt: .now, baseNoteDigest: originalNoteDigest
+        )
+        precondition(!differentContent.confirmsDurableWrite(of: requested),
+                     "a newer draft containing a different note must survive the attempted save")
+        let differentRecord = LibraryInlineNoteDraftSnapshot(
+            recordID: "error-51", baseVersion: newer.baseVersion, draftVersion: 5,
+            content: shortNote, updatedAt: .now, baseNoteDigest: originalNoteDigest
+        )
+        precondition(!differentRecord.confirmsDurableWrite(of: requested),
+                     "a draft for another question cannot confirm this question's write")
+        precondition(!newer.matchesBaseline(recordVersion: originalRecordVersion, noteDigest: "another-note"),
+                     "an actual change to the saved note still conflicts")
+        precondition(newer.matchesBaseline(
+            recordVersion: newer.baseVersion.replacingOccurrences(of: "second:", with: "third:"), noteDigest: nil
+        ), "a changed timestamp with the same record payload is safe")
+
+        let legacyData = Data(#"{"recordID":"error-39","baseVersion":"legacy","draftVersion":3,"content":"<p>旧笔记</p>","updatedAt":0}"#.utf8)
+        guard let legacy = try? JSONDecoder().decode(LibraryInlineNoteDraftSnapshot.self, from: legacyData) else {
+            preconditionFailure("previously written recovery drafts must still decode")
+        }
+        precondition(legacy.baseNoteDigest == nil && legacy.matchesBaseline(recordVersion: "legacy", noteDigest: nil))
+        precondition(!legacy.matchesBaseline(recordVersion: "different", noteDigest: originalNoteDigest))
     }
 
     private static func verifyMetadataRebaseWithTableNote() {

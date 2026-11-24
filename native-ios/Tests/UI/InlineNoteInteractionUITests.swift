@@ -38,6 +38,10 @@ final class InlineNoteInteractionUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
 
+        let status = app.staticTexts["library-inline-note-save-status"]
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "已保存"), object: status)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed,
+                       "Done must write the note to the record, rather than only retaining a draft")
         XCTAssertTrue(app.staticTexts["错题详情"].waitForExistence(timeout: 5),
                       "Detail must survive saving a nonempty inline note")
     }

@@ -8,9 +8,7 @@ struct XingceQuestionTypeManagementView: View {
     var body: some View {
         List {
             ForEach(subjects) { subject in
-                NavigationLink {
-                    destination(for: subject.name)
-                } label: {
+                NavigationLink(value: SettingsRoute.xingceQuestionTypeSubject(subject.name)) {
                     HStack(spacing: 12) {
                         Image(systemName: subject.systemImage)
                             .foregroundStyle(subject.color)
@@ -23,21 +21,10 @@ struct XingceQuestionTypeManagementView: View {
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .accessibilityIdentifier("settings-error-type-subject-\(subject.name)")
             }
         }
         .navigationTitle("题型管理")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    @ViewBuilder
-    private func destination(for name: String) -> some View {
-        if name == "数量关系" {
-            QuantityQuestionTypeManagerView()
-        } else if let subject = LibraryErrorTypeSubject(rawValue: name) {
-            LibraryErrorTypeModulesView(subject: subject)
-        } else {
-            ContentUnavailableView("暂无题型目录", systemImage: "square.stack.3d.up")
-        }
     }
 }
