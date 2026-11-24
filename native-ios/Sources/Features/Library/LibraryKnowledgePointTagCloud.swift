@@ -78,35 +78,34 @@ struct LibraryKnowledgePointTagCloud: View {
         }
     }
 
+    private static let accessorySpacing: CGFloat = 6
+    private static let bulbWidth: CGFloat = 11
+
     private let tags: [Tag]
     private let label: String?
-    private let showsBulb: Bool
+    private let showsKnowledgePointBulb: Bool
 
-    init(points: [String], label: String? = nil, showsBulb: Bool = false) {
+    init(points: [String], label: String? = nil) {
         tags = points.compactMap { value in
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : Tag(text: text, kind: nil)
         }
         self.label = label
-        self.showsBulb = showsBulb
+        showsKnowledgePointBulb = false
     }
 
-    init(cardTags: [LibraryCardTopTag], showsBulb: Bool) {
+    init(cardTags: [LibraryCardTopTag]) {
         tags = cardTags.map { Tag(text: $0.text, kind: $0.kind) }
         label = nil
-        self.showsBulb = showsBulb
+        showsKnowledgePointBulb = Self.cardLeadingAccessoryWidth(for: cardTags) > 0
     }
 
-    static func leadingAccessoryWidth(label: String? = nil, showsBulb: Bool = false) -> CGFloat {
-        if let label {
-            let font = UIFont.systemFont(ofSize: 11, weight: .medium)
-            return ceil(("\(label)：" as NSString).size(withAttributes: [.font: font]).width) + 6
-        }
-        return showsBulb ? 17 : 0
+    static func cardLeadingAccessoryWidth(for tags: [LibraryCardTopTag]) -> CGFloat {
+        tags.contains(where: { $0.kind == .knowledgePoint }) ? bulbWidth + accessorySpacing : 0
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: Self.accessorySpacing) {
             if let label {
                 Text("\(label)：")
                     .font(.system(size: 11, weight: .medium))
@@ -114,12 +113,13 @@ struct LibraryKnowledgePointTagCloud: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.top, 3)
             }
-            if showsBulb {
+            if showsKnowledgePointBulb {
                 Image(systemName: "lightbulb.min")
                     .font(.system(size: 11, weight: .light))
-                    .foregroundStyle(Color.black)
-                    .frame(width: 11)
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: Self.bulbWidth)
                     .padding(.top, 4)
+                    .accessibilityHidden(true)
             }
             LibraryKnowledgePointTagLayout(points: tags.map(\.text)) {
                 ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in

@@ -728,7 +728,7 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private func cardTagsLine(_ values: [LibraryCardTopTag]) -> some View {
-        LibraryKnowledgePointTagCloud(cardTags: values, showsBulb: true)
+        LibraryKnowledgePointTagCloud(cardTags: values)
     }
 
     private func knowledgeHeaderTag(_ value: String) -> some View {
@@ -1374,9 +1374,7 @@ struct LibraryMasonryGrid: View {
         let displayedTitle = isLogicFill ? LibraryLogicComparisonLayout.preview(record.title) : record.title
         let titleLineLimit = isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         let titleLines = estimatedLineCount(displayedTitle, width: contentWidth, fontSize: 14, limit: titleLineLimit)
-        let knowledgePointAccessoryWidth = LibraryKnowledgePointTagCloud.leadingAccessoryWidth(
-            showsBulb: true
-        )
+        let knowledgePointAccessoryWidth = LibraryKnowledgePointTagCloud.cardLeadingAccessoryWidth(for: record.cardTopTags)
         let knowledgePointsWidth = max(1, contentWidth - knowledgePointAccessoryWidth)
         let knowledgePointsHeight = LibraryKnowledgePointTagLayout.estimatedHeight(
             for: record.cardTopTagLabels,
