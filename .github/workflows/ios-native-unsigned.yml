@@ -219,17 +219,27 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
           RUN_SIMULATOR_TESTS: ${{ inputs.run_simulator_tests }}
         run: |
           RUN_SIMULATOR=false
           RUN_QUESTION_BANK=false
           RUN_NAVIGATION=false
           RUN_CONTRACTS=false
+          RUN_SHENLUN=false
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$RUN_SIMULATOR_TESTS" = "true" ]; then
             RUN_SIMULATOR=true
             RUN_QUESTION_BANK=true
             RUN_NAVIGATION=true
             RUN_CONTRACTS=true
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            if ! git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
+              'native-ios/Sources/Features/Library/Shenlun*.swift' \
+              native-ios/Tests/Shenlun \
+              native-ios/Tests/ShenlunWorkspaceBehavior.swift; then
+              RUN_SIMULATOR=true
+              RUN_SHENLUN=true
+            fi
           else
             echo "Simulator builds and tests are disabled for this run."
           fi
@@ -237,6 +247,7 @@ jobs:
           echo "question_bank=$RUN_QUESTION_BANK" >> "$GITHUB_OUTPUT"
           echo "navigation=$RUN_NAVIGATION" >> "$GITHUB_OUTPUT"
           echo "contracts=$RUN_CONTRACTS" >> "$GITHUB_OUTPUT"
+          echo "shenlun=$RUN_SHENLUN" >> "$GITHUB_OUTPUT"
           echo "Run focused simulator tests: $RUN_SIMULATOR"
 
       - name: Test native keypad geometry
@@ -334,6 +345,7 @@ jobs:
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
           RUN_NAVIGATION: ${{ steps.simulator_scope.outputs.navigation }}
+          RUN_SHENLUN: ${{ steps.simulator_scope.outputs.shenlun }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
@@ -374,6 +386,18 @@ jobs:
               -parallel-testing-enabled NO \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
           fi
+          if [ "$RUN_SHENLUN" = "true" ]; then
+            mkdir -p build
+            xcodebuild build-for-testing \
+              -project native-ios/KaogongReviewNative.xcodeproj \
+              -scheme KaogongReviewNative \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath build/ShenlunTestDerivedData \
+              -parallel-testing-enabled NO \
+              -only-testing:SpeedAnimationTests/ShenlunPaperRepositoryTests \
+              -only-testing:SpeedAnimationTests/ShenlunWorkspacePaperLayoutTests \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+          fi
 
       - name: Measure released tab bar geometry after compilation
         if: steps.simulator_scope.outputs.navigation == 'true' && steps.baseline_proof.outputs.valid != 'true'
@@ -412,12 +436,13 @@ jobs:
           path: build/native-tabbar-baseline-proof
           key: native-tabbar-baseline-${{ steps.baseline_key.outputs.digest }}
 
-      - name: Test changed navigation, speed controls and inline note
+      - name: Run selected simulator tests
         if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
         shell: bash
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
+          RUN_SHENLUN: ${{ steps.simulator_scope.outputs.shenlun }}
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
@@ -489,6 +514,13 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testInvalidShenlunAdaptationLeavesPayloadAndBackupUntouched
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testJSONV1PreservesVerifiedQuestionsAndPersistsWithoutBase64Payloads
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen
+            )
+          elif [ "$RUN_SHENLUN" = "true" ]; then
+            RESULT_PATH=build/ShenlunWorkspace.xcresult
+            DERIVED_DATA_PATH=build/ShenlunTestDerivedData
+            TEST_ARGS=(
+              -only-testing:SpeedAnimationTests/ShenlunPaperRepositoryTests
+              -only-testing:SpeedAnimationTests/ShenlunWorkspacePaperLayoutTests
             )
           else
             TEST_ARGS=(
@@ -715,6 +747,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IPA_NAME: ${{ env.IPA_NAME }}
           NATIVE_VERSION: ${{ env.NATIVE_VERSION }}
+          RUN_SHENLUN_TESTS: ${{ steps.simulator_scope.outputs.shenlun }}
         run: |
           TAG="native-v${NATIVE_VERSION}"
           BUILD_NUMBER=$(awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
@@ -751,6 +784,11 @@ jobs:
           fi
           if [ -z "$SPEC_LIST" ]; then SPEC_LIST="- No implementation specification file was added in this commit."; fi
           if [ -z "$PROTOTYPE_LIST" ]; then PROTOTYPE_LIST="- No approved prototype file was added in this commit."; fi
+          if [ "$RUN_SHENLUN_TESTS" = "true" ]; then
+            SIMULATOR_TEST_LINE="- iPad simulator tests: ShenlunPaperRepositoryTests and ShenlunWorkspacePaperLayoutTests passed."
+          else
+            SIMULATOR_TEST_LINE="- iPad simulator tests: not run for this source change."
+          fi
           RECORD_PATH="docs/native-rewrite/deliveries/${NATIVE_VERSION}.md"
           mkdir -p "$(dirname "$RECORD_PATH")"
           cat > "$RECORD_PATH" <<EOF
@@ -764,7 +802,8 @@ jobs:
           - CI/package result: successful; this record is written only after the configured checks, iOS archive, resource/version checks, and IPA upload have succeeded.
           - Local source check: git diff --check passed before the release push. The Windows host has no local Xcode toolchain; the GitHub workflow supplies the iOS archive.
           - Workflow checks: this workflow runs its fixed domain behavior check batch on every push; some checks cover areas outside this release's changes.
-          - Interactive acceptance: simulator and physical iPad interactions were not performed by this workflow. See the implementation specifications for the specific scenarios that still need device review.
+          ${SIMULATOR_TEST_LINE}
+          - Interactive acceptance: red-grid focus, completion-to-review, and retry history were not automated; physical iPad interaction remains to be confirmed. See the implementation specifications for the relevant scenarios.
 
           ## Implementation record
 
