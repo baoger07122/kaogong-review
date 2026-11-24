@@ -61,9 +61,8 @@ struct ShenlunWorkspacePaperLayout {
                 .foregroundColor: UIColor.label,
                 .paragraphStyle: titleStyle
             ]))
-            let instructions = question.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !instructions.isEmpty {
-                value.append(NSAttributedString(string: instructions + "\n", attributes: bodyAttributes()))
+            if !question.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                value.append(NSAttributedString(string: question.instructions + "\n", attributes: bodyAttributes()))
             }
             value.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
         }
@@ -83,7 +82,6 @@ struct ShenlunWorkspacePaperLayout {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .justified
         paragraph.lineBreakMode = .byCharWrapping
-        paragraph.firstLineHeadIndent = 22.63
         paragraph.minimumLineHeight = 20.6
         paragraph.maximumLineHeight = 20.6
         paragraph.paragraphSpacing = 0

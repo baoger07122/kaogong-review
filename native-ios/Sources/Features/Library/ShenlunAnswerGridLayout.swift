@@ -3,6 +3,7 @@ import Foundation
 struct ShenlunAnswerGridCell: Equatable, Sendable {
     var index: Int
     var character: String
+    var sharesCellWithFullStop = false
 
     var pageIndex: Int { max(0, index - 1) / 600 }
     var row: Int { (max(0, index - 1) % 600) / 25 }
@@ -13,22 +14,24 @@ struct ShenlunAnswerGridProjection: Equatable, Sendable {
     var cells: [ShenlunAnswerGridCell]
     var occupiedCount: Int
     var maximumCount: Int?
+    var showsUnboundedGrid = false
 
-    var isGridEnabled: Bool { maximumCount != nil }
-    var visibleCellCount: Int { maximumCount ?? 0 }
-    var sheetCount: Int { max(1, Int(ceil(Double(maximumCount ?? 0) / 600))) }
-    var overflowCount: Int { max(0, occupiedCount - (maximumCount ?? occupiedCount)) }
+    static let reserveCount = 100
+    var isGridEnabled: Bool { maximumCount != nil || showsUnboundedGrid }
+    var visibleCellCount: Int {
+        if let maximumCount { return min(maximumCount, Int.max - Self.reserveCount) + Self.reserveCount }
+        return showsUnboundedGrid ? (max(1, occupiedCount) - 1) / 25 * 25 + 25 : 0
+    }
+    var sheetCount: Int { visibleCellCount > 0 ? (visibleCellCount - 1) / 600 + 1 : 1 }
+    var overflowCount: Int { isGridEnabled ? max(0, occupiedCount - visibleCellCount) : 0 }
 
     func visibleCells(on sheet: Int) -> [ShenlunAnswerGridCell] {
-        let lowerBound = sheet * 600 + 1
-        let upperBound = min((sheet + 1) * 600, maximumCount ?? 0)
-        guard lowerBound <= upperBound else { return [] }
-        return cells.filter { (lowerBound...upperBound).contains($0.index) }
+        guard let range = cellRange(on: sheet) else { return [] }
+        return cells.filter { range.contains($0.index) }
     }
 
     func gridCellCount(on sheet: Int) -> Int {
-        let lowerBound = sheet * 600 + 1
-        return max(0, min(600, (maximumCount ?? 0) - lowerBound + 1))
+        cellRange(on: sheet)?.count ?? 0
     }
 
     func rowCount(on sheet: Int) -> Int {
@@ -36,27 +39,37 @@ struct ShenlunAnswerGridProjection: Equatable, Sendable {
     }
 
     func markers(on sheet: Int, minimumWordCount: Int?) -> [Int] {
-        let lowerBound = sheet * 600 + 1
-        let upperBound = min((sheet + 1) * 600, maximumCount ?? 0)
-        guard lowerBound <= upperBound else { return [] }
-        let rulers = stride(from: 100, through: upperBound, by: 100).filter { $0 >= lowerBound }
-        return Array(Set(rulers + [minimumWordCount, maximumCount].compactMap { $0 }.filter { (lowerBound...upperBound).contains($0) })).sorted()
+        guard let range = cellRange(on: sheet) else { return [] }
+        return range.filter {
+            $0.isMultiple(of: 100) || $0 == minimumWordCount || $0 == maximumCount || $0 == visibleCellCount
+        }
+    }
+
+    private func cellRange(on sheet: Int) -> ClosedRange<Int>? {
+        guard isGridEnabled, sheet >= 0, sheet < sheetCount else { return nil }
+        let preceding = sheet * 600
+        return (preceding + 1)...(preceding + min(600, visibleCellCount - preceding))
     }
 }
 
 enum ShenlunAnswerGridLayout {
-    static func project(answerText: String, maximumWordCount: Int?) -> ShenlunAnswerGridProjection {
+    static func project(answerText: String, maximumWordCount: Int?, showsUnboundedGrid: Bool = false) -> ShenlunAnswerGridProjection {
         let maximum = maximumWordCount.flatMap { $0 > 0 ? $0 : nil }
         var row = 0
         var column = 0
         var occupiedCount = 0
         var fullRowBreakPending = false
+        var atParagraphStart = true
+        let characters = Array(answerText)
+        var offset = 0
         var cells: [ShenlunAnswerGridCell] = []
-        cells.reserveCapacity(answerText.count)
+        cells.reserveCapacity(characters.count)
 
-        for character in answerText {
-            let value = String(character)
-            if value == "\n" || value == "\r" || value == "\r\n" {
+        while offset < characters.count {
+            let character = characters[offset]
+            offset += 1
+            if character.isNewline {
+                atParagraphStart = true
                 if column > 0 {
                     row += 1
                     column = 0
@@ -69,6 +82,20 @@ enum ShenlunAnswerGridLayout {
                 continue
             }
 
+            if character == "。", !atParagraphStart,
+               (fullRowBreakPending || characters.dropFirst(offset).prefix(while: { !$0.isNewline }).allSatisfy(\.isWhitespace)),
+               let last = cells.indices.last,
+               !cells[last].character.allSatisfy(\.isWhitespace), !cells[last].sharesCellWithFullStop {
+                cells[last].sharesCellWithFullStop = true
+                continue
+            }
+
+            var value = String(character)
+            if atParagraphStart, let end = numberingEnd(in: characters, after: offset, startingWith: character) {
+                value += String(characters[offset...end])
+                offset = end + 1
+            }
+            if !character.isWhitespace { atParagraphStart = false }
             let index = row * 25 + column + 1
             cells.append(ShenlunAnswerGridCell(index: index, character: value))
             occupiedCount = index
@@ -82,7 +109,29 @@ enum ShenlunAnswerGridLayout {
             }
         }
 
-        return ShenlunAnswerGridProjection(cells: cells, occupiedCount: occupiedCount, maximumCount: maximum)
+        return ShenlunAnswerGridProjection(
+            cells: cells, occupiedCount: occupiedCount, maximumCount: maximum, showsUnboundedGrid: showsUnboundedGrid
+        )
+    }
+
+    private static func isNumberingDigit(_ character: Character) -> Bool {
+        "0123456789０１２３４５６７８９".contains(character)
+    }
+
+    private static func isChineseNumber(_ character: Character) -> Bool {
+        "〇零一二三四五六七八九十百千".contains(character)
+    }
+
+    private static func numberingEnd(in characters: [Character], after offset: Int, startingWith first: Character) -> Int? {
+        if isChineseNumber(first) {
+            let end = characters[offset...].prefix(while: isChineseNumber).endIndex
+            return end < characters.count && characters[end] == "、" ? end : nil
+        }
+        guard isNumberingDigit(first) else { return nil }
+        let end = characters[offset...].prefix(while: isNumberingDigit).endIndex
+        guard end < characters.count, [".", "．"].contains(characters[end]),
+              end + 1 == characters.count || !isNumberingDigit(characters[end + 1]) else { return nil }
+        return end
     }
 }
 

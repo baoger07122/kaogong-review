@@ -17,15 +17,24 @@ enum ShenlunMaterialTextFormatter {
         guard let selection = Range(range, in: text) else { return nil }
         let body = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
         let formatted = format(body)
-        guard formatted != body else { return nil }
         let leading = pasted.prefix(while: \.isWhitespace)
         let trailing = pasted.reversed().prefix(while: \.isWhitespace).reversed()
-        let insertion = String(leading) + formatted + String(trailing)
+        let candidate = formatted == body ? pasted : String(leading) + formatted + String(trailing)
+        let insertion = unindentedPaste(candidate, in: text, replacing: range)
+        guard insertion != pasted else { return nil }
         return ShenlunMaterialPasteEdit(
             insertion: insertion,
             restoredText: text.replacingCharacters(in: selection, with: pasted),
             formattedText: text.replacingCharacters(in: selection, with: insertion)
         )
+    }
+
+    static func unindentedPaste(_ pasted: String, in text: String, replacing range: NSRange) -> String {
+        guard let selection = Range(range, in: text) else { return pasted }
+        let linePrefix = text[..<selection.lowerBound].reversed().prefix { !$0.isNewline }
+        let atParagraphStart = linePrefix.allSatisfy(\.isWhitespace)
+        let pattern = atParagraphStart ? #"(?m)^[\p{Zs}\t]+"# : #"(?m)^(?!\A)[\p{Zs}\t]+"#
+        return pasted.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
     }
 
     static func format(_ text: String) -> String {

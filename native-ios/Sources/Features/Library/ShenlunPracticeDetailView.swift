@@ -26,6 +26,7 @@ private struct ShenlunQuestionReadingLocation: Codable {
 struct ShenlunPracticeDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("native.shenlun.completed-answer.grid") private var showsCompletedAnswerGrid = true
     @StateObject private var pencilController = PencilDrawingController()
 
     let practice: ShenlunWorkspacePractice
@@ -651,7 +652,8 @@ struct ShenlunPracticeDetailView: View {
     }
 
     private func answerPaperSection(for question: ShenlunWorkspaceQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let projection = answerProjection
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("答题纸").font(.system(size: 13, weight: .medium))
                 Button(answerFocusRequest == nil ? "键入" : "收起") {
@@ -665,10 +667,8 @@ struct ShenlunPracticeDetailView: View {
                 .foregroundStyle(AppTheme.accent)
                 .frame(minHeight: 44)
                 Spacer(minLength: 4)
-                if let maximum = question.maximumWordCount {
-                    Text("\(answerProjection.occupiedCount)/\(maximum) 格")
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(answerProjection.overflowCount > 0 ? AppTheme.danger : .secondary)
+                if projection.isGridEnabled {
+                    gridCount(projection)
                 } else {
                     Text("未设字数上限 · \(answerText.count) 字")
                         .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -684,12 +684,9 @@ struct ShenlunPracticeDetailView: View {
                 .frame(minHeight: question.maximumWordCount == nil ? 220 : 180)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            if question.maximumWordCount != nil {
-                answerGridPaper(for: question)
-                if answerProjection.overflowCount > 0 {
-                    Text("超出 \(answerProjection.overflowCount) 格，原文未截断。")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
-                }
+            if projection.isGridEnabled {
+                answerGridPaper(projection, minimumWordCount: question.minimumWordCount, onEdit: beginAnswerEditing)
+                gridOverflow(projection)
             } else if answerFocusRequest == nil {
                 Button(action: beginAnswerEditing) {
                     Text(answerText.isEmpty ? "点此键入答案" : answerText)
@@ -707,12 +704,34 @@ struct ShenlunPracticeDetailView: View {
         answerFocusRequest = UUID()
     }
 
-    private func answerGridPaper(for question: ShenlunWorkspaceQuestion) -> some View {
-        let sheetCount = answerProjection.sheetCount
+    private func gridCount(_ projection: ShenlunAnswerGridProjection) -> some View {
+        Text("\(projection.occupiedCount)/\(projection.visibleCellCount) 格")
+            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+            .foregroundStyle(projection.overflowCount > 0 ? AppTheme.danger : .secondary)
+    }
+
+    @ViewBuilder
+    private func gridOverflow(_ projection: ShenlunAnswerGridProjection) -> some View {
+        if projection.overflowCount > 0 {
+            Text("超出答题纸 \(projection.overflowCount) 格，原文完整保留。")
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
+        }
+    }
+
+    private func answerGridPaper(
+        _ projection: ShenlunAnswerGridProjection,
+        minimumWordCount: Int?,
+        onEdit: (() -> Void)? = nil
+    ) -> some View {
+        let sheetCount = projection.sheetCount
         let sheet = min(answerPaperIndex, max(0, sheetCount - 1))
-        let maxCount = question.maximumWordCount ?? 0
-        let gridCells = answerProjection.gridCellCount(on: sheet)
+        let gridCells = projection.gridCellCount(on: sheet)
         return VStack(spacing: 8) {
+            if let maximum = projection.maximumCount {
+                Text("题目上限 \(maximum) 字 · 备用 \(projection.visibleCellCount - maximum) 格")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if sheetCount > 1 {
                 HStack {
                     Text("\(sheet + 1)/\(sheetCount) 张").font(.system(size: 12, weight: .semibold))
@@ -722,10 +741,10 @@ struct ShenlunPracticeDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
-            GeometryReader { geometry in
+            let grid = GeometryReader { geometry in
                 let cell = max(5, geometry.size.width / 25)
-                let rows = answerProjection.rowCount(on: sheet)
-                Canvas { context, size in
+                let rows = projection.rowCount(on: sheet)
+                Canvas { context, _ in
                     let spacing = cell * 0.42
                     let pageStart = sheet * 600
                     let cellsOnLastRow = gridCells % 25 == 0 ? 25 : gridCells % 25
@@ -733,34 +752,49 @@ struct ShenlunPracticeDetailView: View {
                         let rowCount = row == rows - 1 ? cellsOnLastRow : 25
                         for column in 0..<rowCount {
                             let rect = CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * (cell + spacing), width: cell - 1, height: cell - 1)
+                            if let maximum = projection.maximumCount, pageStart + row * 25 + column + 1 > maximum {
+                                context.fill(Path(rect), with: .color(AppTheme.accent.opacity(0.06)))
+                            }
                             context.stroke(Path(rect), with: .color(Color(red: 0.71, green: 0.50, blue: 0.51).opacity(0.68)), lineWidth: column == 24 ? 1.1 : 0.65)
                         }
                     }
-                    for item in answerProjection.visibleCells(on: sheet) {
-                        guard item.index <= maxCount, item.character != " " && item.character != "\t" else { continue }
-                        let point = CGPoint(x: CGFloat(item.column) * cell + cell * 0.1, y: CGFloat(item.row) * (cell + spacing) + cell * 0.02)
-                        context.draw(Text(item.character).font(.system(size: cell * 0.72, weight: .regular, design: .serif)).foregroundColor(.primary), at: point, anchor: .topLeading)
+                    for item in projection.visibleCells(on: sheet) {
+                        guard !item.character.allSatisfy(\.isWhitespace) else { continue }
+                        let x = CGFloat(item.column) * cell
+                        let y = CGFloat(item.row) * (cell + spacing)
+                        let point = CGPoint(x: x + cell * 0.1, y: y + cell * 0.02)
+                        let fontSize = item.character.count > 1
+                            ? min(cell * 0.65, cell * 0.84 / CGFloat(item.character.count))
+                            : cell * 0.72
+                        let text = Text(item.character).font(.system(size: fontSize, design: .serif)).foregroundColor(.primary)
+                        context.draw(text, at: point, anchor: .topLeading)
+                        if item.sharesCellWithFullStop {
+                            let fullStop = Text("。").font(.system(size: cell * 0.40, design: .serif)).foregroundColor(.primary)
+                            context.draw(fullStop, at: CGPoint(x: x + cell * 0.81, y: y + cell * 0.88), anchor: .bottomTrailing)
+                        }
                     }
-                    for mark in answerProjection.markers(on: sheet, minimumWordCount: question.minimumWordCount) {
+                    for mark in projection.markers(on: sheet, minimumWordCount: minimumWordCount) {
                         let row = ((mark - 1) % 600) / 25
                         let column = (mark - 1) % 25
                         let label = Text(String(mark)).font(.system(size: max(6, cell * 0.28), weight: .medium).monospacedDigit()).foregroundColor(Color(red: 0.58, green: 0.26, blue: 0.29))
                         context.draw(label, at: CGPoint(x: CGFloat(column + 1) * cell - 2, y: CGFloat(row) * (cell + spacing) + cell), anchor: .topTrailing)
                     }
-                    _ = pageStart
-                    _ = size
                 }
                 .frame(height: CGFloat(rows) * (cell * 1.42) + 14)
             }
-            .aspectRatio(25 / (CGFloat(max(1, answerProjection.rowCount(on: sheet))) * 1.42 + 1.25), contentMode: .fit)
+            .aspectRatio(25 / (CGFloat(max(1, projection.rowCount(on: sheet))) * 1.42 + 1.25), contentMode: .fit)
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
             .contentShape(Rectangle())
-            .onTapGesture(perform: beginAnswerEditing)
-            .accessibilityLabel("红格答题纸")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { beginAnswerEditing() }
+            if let onEdit {
+                grid.onTapGesture(perform: onEdit)
+                    .accessibilityLabel("红格答题纸")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onEdit() }
+            } else {
+                grid.accessibilityLabel("作答格子纸")
+            }
         }
     }
 
@@ -882,15 +916,31 @@ struct ShenlunPracticeDetailView: View {
     private func comparisonSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             reviewCard("我的作答") {
-                Text(answer.answerText.isEmpty ? "这次补录没有作答原文。" : answer.answerText)
-                    .font(.system(size: 15))
-                    .foregroundStyle(answer.answerText.isEmpty ? Color.secondary : Color.primary)
-                    .textSelection(.enabled)
+                if answer.answerText.isEmpty {
+                    Text("这次补录没有作答原文。").font(.system(size: 15)).foregroundStyle(.secondary)
+                } else {
+                    Picker("作答显示方式", selection: $showsCompletedAnswerGrid) {
+                        Text("格子纸").tag(true)
+                        Text("普通").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    if showsCompletedAnswerGrid {
+                        let projection = ShenlunAnswerGridLayout.project(
+                            answerText: answer.answerText,
+                            maximumWordCount: question.maximumWordCount,
+                            showsUnboundedGrid: true
+                        )
+                        gridCount(projection)
+                        answerGridPaper(projection, minimumWordCount: question.minimumWordCount)
+                        gridOverflow(projection)
+                    } else {
+                        Text(answer.answerText).font(.system(size: 15)).textSelection(.enabled)
+                    }
+                }
             }
             reviewCard("参考答案") {
                 if isEditingReferenceAnswer {
-                    TextEditor(text: $referenceAnswerDraft)
-                        .font(.system(size: 15))
+                    ShenlunCommittedTextEditor(text: $referenceAnswerDraft, accessibilityIdentifier: "shenlun-reference-answer")
                         .frame(minHeight: 160)
                     HStack {
                         Button("取消") {
@@ -1155,8 +1205,7 @@ struct ShenlunPracticeDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("记录当前题目中的一个具体疑惑。可在复盘时继续补充或逐条核对。")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
-                TextEditor(text: $doubtText)
-                    .font(.system(size: 15))
+                ShenlunCommittedTextEditor(text: $doubtText, accessibilityIdentifier: "shenlun-doubt-text")
                     .padding(6)
                     .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
                 if let currentMaterial {
@@ -1642,8 +1691,8 @@ struct ShenlunPracticeDetailView: View {
 
     private func saveDoubt() {
         guard let questionID else { return }
-        let text = doubtText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let text = doubtText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var doubt = ShenlunWorkspaceDoubt(
             questionID: questionID,
             body: text,
@@ -1854,6 +1903,7 @@ private struct ShenlunCommittedTextEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> FocusableTextView {
         let view = FocusableTextView()
         view.delegate = context.coordinator
+        view.pasteDelegate = context.coordinator
         view.font = .systemFont(ofSize: 15)
         view.textColor = .label
         view.backgroundColor = .white
@@ -1902,7 +1952,7 @@ private struct ShenlunCommittedTextEditor: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UITextPasteDelegate {
         var parent: ShenlunCommittedTextEditor
         init(parent: ShenlunCommittedTextEditor) { self.parent = parent }
         func textViewDidChange(_ textView: UITextView) {
@@ -1913,6 +1963,26 @@ private struct ShenlunCommittedTextEditor: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) {
             guard textView.markedTextRange == nil, let text = textView.text, text != parent.text else { return }
             parent.text = text
+        }
+
+        func textPasteConfigurationSupporting(
+            _ supporting: any UITextPasteConfigurationSupporting,
+            performPasteOf attributedString: NSAttributedString,
+            to textRange: UITextRange
+        ) -> UITextRange {
+            guard let view = supporting as? UITextView else { return textRange }
+            let start = view.offset(from: view.beginningOfDocument, to: textRange.start)
+            let length = view.offset(from: textRange.start, to: textRange.end)
+            let insertion = ShenlunMaterialTextFormatter.unindentedPaste(
+                attributedString.string, in: view.text ?? "", replacing: NSRange(location: start, length: length)
+            )
+            view.replace(textRange, withText: insertion)
+            textViewDidChange(view)
+            guard let beginning = view.position(from: view.beginningOfDocument, offset: start),
+                  let end = view.position(from: beginning, offset: insertion.utf16.count),
+                  let insertedRange = view.textRange(from: beginning, to: end) else { return textRange }
+            view.selectedTextRange = view.textRange(from: end, to: end)
+            return insertedRange
         }
     }
 }

@@ -3,19 +3,20 @@ import Foundation
 @main
 enum ShenlunWorkspaceBehavior {
     static func main() {
-        for (limit, expectedRows) in [(250, 10), (300, 12), (450, 18)] {
+        for (limit, expectedRows) in [(250, 14), (300, 16), (450, 22)] {
             let projection = ShenlunAnswerGridLayout.project(answerText: "", maximumWordCount: limit)
             precondition(projection.sheetCount == 1, "(limit) cells should fit on one sheet")
             precondition(projection.rowCount(on: 0) == expectedRows, "(limit) cells should produce (expectedRows) rows")
         }
 
         let partial = ShenlunAnswerGridLayout.project(answerText: "", maximumWordCount: 257)
-        precondition(partial.gridCellCount(on: 0) == 257 && partial.rowCount(on: 0) == 11,
-                     "a 257-cell limit should leave only seven cells on its last row")
+        precondition(partial.gridCellCount(on: 0) == 357 && partial.rowCount(on: 0) == 15,
+                     "a 257-cell limit plus the reserve should leave seven cells on its last row")
 
         let wrapped = ShenlunAnswerGridLayout.project(answerText: "甲，乙。\n两个字符", maximumWordCount: 300)
         precondition(wrapped.occupiedCount == 29, "newline should skip the unused tail of the first row when later text exists")
-        precondition(wrapped.cells.map(\.index) == [1, 2, 3, 4, 26, 27, 28, 29], "characters after a line break should begin at the next 25-column row")
+        precondition(wrapped.cells.map(\.index) == [1, 2, 3, 26, 27, 28, 29] && wrapped.cells[2].sharesCellWithFullStop,
+                     "a paragraph-ending full stop shares a cell and the next paragraph still starts on the next row")
 
         let exactRow = ShenlunAnswerGridLayout.project(answerText: String(repeating: "字", count: 25) + "\n后", maximumWordCount: 100)
         precondition(exactRow.cells.last?.index == 26, "a return after a full row must not insert an extra blank row")
@@ -26,15 +27,25 @@ enum ShenlunWorkspaceBehavior {
         let spaces = ShenlunAnswerGridLayout.project(answerText: "a b", maximumWordCount: 100)
         precondition(spaces.occupiedCount == 3 && spaces.cells[1].character == " ", "an explicit space should occupy a cell even though drawing may leave it blank")
 
-        let overflow = ShenlunAnswerGridLayout.project(answerText: String(repeating: "字", count: 260), maximumWordCount: 257)
-        precondition(overflow.occupiedCount == 260 && overflow.overflowCount == 3,
-                     "input beyond the upper bound must stay intact and expose the overflow count")
+        for count in [401, 500, 501] {
+            let projection = ShenlunAnswerGridLayout.project(answerText: String(repeating: "字", count: count), maximumWordCount: 400)
+            precondition(projection.maximumCount == 400 && projection.visibleCellCount == 500)
+            precondition(projection.visibleCells(on: 0).count == min(500, count) && projection.overflowCount == max(0, count - 500))
+        }
         let twoSheets = ShenlunAnswerGridLayout.project(answerText: "", maximumWordCount: 1_200)
-        precondition(twoSheets.sheetCount == 2 && twoSheets.gridCellCount(on: 0) == 600 && twoSheets.gridCellCount(on: 1) == 600,
-                     "a 1,200-cell upper limit should use two full 600-cell sheets")
+        precondition(twoSheets.sheetCount == 3 && twoSheets.gridCellCount(on: 0) == 600 &&
+                     twoSheets.gridCellCount(on: 1) == 600 && twoSheets.gridCellCount(on: 2) == 100,
+                     "a 1,200-cell upper limit should use two full sheets plus the reserve on a third")
         let secondSheetMarkers = twoSheets.markers(on: 1, minimumWordCount: 1_000)
         precondition(secondSheetMarkers == [700, 800, 900, 1_000, 1_100, 1_200],
                      "the second sheet should mark each 100-cell ruler plus the 1,000 lower and 1,200 upper bounds")
+        let numbering = ShenlunAnswerGridLayout.project(answerText: "一、标题。\n　1.要点\n二、示例\n1.5", maximumWordCount: 100)
+        precondition(numbering.cells.map(\.character) == ["一、", "标", "题", "　", "1.", "要", "点", "二、", "示", "例", "1", ".", "5"])
+        precondition(numbering.cells[4].index == 27, "a manually entered ideographic space must remain in the grid")
+        let stopAtEdge = ShenlunAnswerGridLayout.project(answerText: String(repeating: "字", count: 25) + "。后", maximumWordCount: 400)
+        precondition(stopAtEdge.occupiedCount == 26 && stopAtEdge.cells[24].sharesCellWithFullStop)
+        let reviewGrid = ShenlunAnswerGridLayout.project(answerText: "答案。", maximumWordCount: nil, showsUnboundedGrid: true)
+        precondition(reviewGrid.isGridEnabled && reviewGrid.gridCellCount(on: 0) == 25 && reviewGrid.overflowCount == 0)
 
         precondition(ShenlunPDFPageSelectionPolicy.parse("1-3,5,3", pageCount: 7) == [0, 1, 2, 4],
                      "PDF range selection should preserve selected page order and remove repeated pages")
@@ -114,5 +125,10 @@ enum ShenlunWorkspaceBehavior {
         precondition(edit?.restoredText == "前文🚦 极其简\n单 后文",
                      "undo formatting must restore only the new paste's original line breaks")
         precondition(ShenlunMaterialTextFormatter.formattedPaste("普通粘贴", in: editorText, replacing: selection) == nil)
+        let pastedParagraphs = "　　第一段。\r\n  第二段。"
+        let start = NSRange(location: 0, length: 0)
+        precondition(ShenlunMaterialTextFormatter.unindentedPaste(pastedParagraphs, in: "", replacing: start) == "第一段。\r\n第二段。")
+        precondition(ShenlunMaterialTextFormatter.unindentedPaste(pastedParagraphs, in: "　", replacing: NSRange(location: 1, length: 0)) == "第一段。\r\n第二段。")
+        precondition(ShenlunMaterialTextFormatter.unindentedPaste(" 词\n　下一段", in: "前", replacing: NSRange(location: 1, length: 0)) == " 词\n下一段")
     }
 }

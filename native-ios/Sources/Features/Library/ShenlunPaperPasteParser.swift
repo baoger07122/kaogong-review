@@ -58,7 +58,7 @@ enum ShenlunPaperPasteParser {
                 heading = match[0]
                 if !match[1].isEmpty { lines.append(match[1]) }
             } else {
-                lines.append(line)
+                lines.append(ShenlunMaterialTextFormatter.unindentedPaste(line, in: "", replacing: NSRange(location: 0, length: 0)))
             }
         }
         finishEntry()

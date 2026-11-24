@@ -70,9 +70,7 @@ struct ShenlunTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
-        if onFormattedMaterialPaste != nil {
-            view.pasteDelegate = context.coordinator
-        }
+        view.pasteDelegate = context.coordinator
         view.font = UIFont.systemFont(ofSize: fontSize ?? AppTheme.inputUIFont.pointSize)
         view.textColor = .label
         view.backgroundColor = .clear
@@ -165,8 +163,11 @@ struct ShenlunTextView: UIViewRepresentable {
             let length = view.offset(from: textRange.start, to: textRange.end)
             let selection = NSRange(location: startOffset, length: length)
             let raw = attributedString.string
-            let edit = ShenlunMaterialTextFormatter.formattedPaste(raw, in: view.text ?? "", replacing: selection)
-            let insertion = edit?.insertion ?? raw
+            let document = view.text ?? ""
+            let edit = parent.onFormattedMaterialPaste == nil ? nil
+                : ShenlunMaterialTextFormatter.formattedPaste(raw, in: document, replacing: selection)
+            let insertion = edit?.insertion
+                ?? ShenlunMaterialTextFormatter.unindentedPaste(raw, in: document, replacing: selection)
 
             applyingPaste = true
             view.replace(textRange, withText: insertion)

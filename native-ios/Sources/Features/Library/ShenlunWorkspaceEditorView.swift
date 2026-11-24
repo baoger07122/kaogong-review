@@ -771,7 +771,7 @@ struct ShenlunWorkspaceEditorView: View {
         )
         let savedQuestions = questionDrafts.enumerated().map { index, draft in
             var saved = draft
-            saved.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.title = draft.title
             saved.materialIDs = materialIDs.filter { draft.materialIDs.contains($0) }
             saved.materialDecisionMade = draft.materialDecisionMade == true || !saved.materialIDs.isEmpty
             saved.revision += 1

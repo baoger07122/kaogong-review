@@ -31,6 +31,17 @@ final class ShenlunWorkspacePaperLayoutTests: XCTestCase {
         XCTAssertGreaterThan(lineCountInsidePaper(for: page), 3)
     }
 
+    func testBodyStartsFlushAndPreservesExplicitParagraphSpaces() throws {
+        let material = ShenlunWorkspacePaperLayout.material(title: "材料 1", text: "正文\n　手动缩进")
+        let page = try XCTUnwrap(material.pages.first)
+        let location = (page.string as NSString).range(of: "正文").location
+        let style = try XCTUnwrap(page.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(style.firstLineHeadIndent, 0)
+        XCTAssertTrue(page.string.contains("\n　手动缩进"))
+        let question = ShenlunWorkspaceQuestion(practiceID: "practice", order: 0, title: "题干", instructions: "　作答要求")
+        XCTAssertTrue(ShenlunWorkspacePaperLayout.requirements(questions: [question]).pages.map(\.string).joined().contains("\n　作答要求"))
+    }
+
     private func lineCountInsidePaper(for page: NSAttributedString) -> Int {
         let size = ShenlunWorkspacePaperLayout.textSize
         let reader = ShenlunWorkspaceTextPaperPage(text: page).makeTextView()
