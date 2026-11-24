@@ -1,10 +1,32 @@
 import Foundation
 
+struct ShenlunMaterialPasteEdit {
+    let insertion: String
+    let restoredText: String
+    let formattedText: String
+}
+
 enum ShenlunMaterialTextFormatter {
     private static let materialHeading = #"^(?:给定)?材料[ \t　]*[0-9０-９一二三四五六七八九十]+[：:]?$"#
     private static let numberedItem = #"^(?:[一二三四五六七八九十]+[、．]|[（(][一二三四五六七八九十0-9０-９]+[）)]|[0-9０-９]+[、．]|[0-9]+\.[ \t]|[•●▪]|[-*][ \t])"#
     private static let closingPunctuation = "，。！？；：、）》】〕〉”’」』…％,.!?;:)]}"
     private static let closingQuotesAndBrackets = "）》】〕〉”’」』)]}"
+    private static let openingQuotesAndBrackets = "（《【〔〈“‘「『([{"
+
+    static func formattedPaste(_ pasted: String, in text: String, replacing range: NSRange) -> ShenlunMaterialPasteEdit? {
+        guard let selection = Range(range, in: text) else { return nil }
+        let body = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        let formatted = format(body)
+        guard formatted != body else { return nil }
+        let leading = pasted.prefix(while: \.isWhitespace)
+        let trailing = pasted.reversed().prefix(while: \.isWhitespace).reversed()
+        let insertion = String(leading) + formatted + String(trailing)
+        return ShenlunMaterialPasteEdit(
+            insertion: insertion,
+            restoredText: text.replacingCharacters(in: selection, with: pasted),
+            formattedText: text.replacingCharacters(in: selection, with: insertion)
+        )
+    }
 
     static func format(_ text: String) -> String {
         let copy = text.replacingOccurrences(of: "\u{2029}", with: "\n\n")
@@ -40,8 +62,10 @@ enum ShenlunMaterialTextFormatter {
         for line in lines.dropFirst() {
             let inferredBoundary = previous.text.count <= shortLineLimit && endsSentence(previous.text)
                 && !line.text.prefix(1).contains(where: closingPunctuation.contains)
-            if line.hasParagraphBoundary || line.isMaterialHeading || line.isNumberedItem
-                || previous.isMaterialHeading || inferredBoundary {
+            let joinsDetachedPunctuation = previous.text.allSatisfy(openingQuotesAndBrackets.contains)
+                || line.text.first.map(closingQuotesAndBrackets.contains) == true
+            if !joinsDetachedPunctuation && (line.hasParagraphBoundary || line.isMaterialHeading || line.isNumberedItem
+                || previous.isMaterialHeading || inferredBoundary) {
                 paragraphs.append(paragraph)
                 paragraph = line.text
             } else {

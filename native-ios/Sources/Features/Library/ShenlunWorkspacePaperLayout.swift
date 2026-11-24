@@ -3,6 +3,10 @@ import SwiftUI
 import UIKit
 
 struct ShenlunWorkspacePaperLayout {
+    static let paperSize = CGSize(width: 612, height: 866)
+    static let textSize = CGSize(width: 472, height: 741)
+    static let textOrigin = CGPoint(x: 70, y: 68)
+
     var pages: [NSAttributedString]
 
     static func material(title: String, text: String) -> ShenlunWorkspacePaperLayout {
@@ -97,9 +101,8 @@ struct ShenlunWorkspacePaperLayout {
         var safety = 0
         while pageStart < storage.length && safety < 500 {
             safety += 1
-            let container = NSTextContainer(size: CGSize(width: 472, height: 741))
-            container.lineFragmentPadding = 0
-            container.maximumNumberOfLines = 0
+            let container = NSTextContainer(size: textSize)
+            configure(container)
             layoutManager.addTextContainer(container)
             layoutManager.ensureLayout(for: container)
             let glyphRange = layoutManager.glyphRange(for: container)
@@ -117,8 +120,30 @@ struct ShenlunWorkspacePaperLayout {
             pageStart = NSMaxRange(characterRange)
         }
         if ranges.isEmpty { ranges = [NSRange(location: 0, length: storage.length)] }
-        let pages = ranges.map { source.attributedSubstring(from: $0) }
+        let text = source.string as NSString
+        let pages = ranges.map { range -> NSAttributedString in
+            let page = source.attributedSubstring(from: range)
+            let start = NSRange(location: range.location, length: 0)
+            // A page can start on a continuation line of an existing paragraph.
+            guard range.location > text.paragraphRange(for: start).location,
+                  let paragraph = page.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle,
+                  let continuation = paragraph.mutableCopy() as? NSMutableParagraphStyle else { return page }
+            continuation.firstLineHeadIndent = continuation.headIndent
+            let adjusted = NSMutableAttributedString(attributedString: page)
+            let firstParagraph = (page.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+            adjusted.addAttribute(.paragraphStyle, value: continuation, range: firstParagraph)
+            return adjusted
+        }
         return ShenlunWorkspacePaperLayout(pages: pages)
+    }
+
+    fileprivate static func configure(_ container: NSTextContainer) {
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        container.size = textSize
+        container.lineFragmentPadding = 0
+        container.lineBreakMode = .byCharWrapping
+        container.maximumNumberOfLines = 0
     }
 }
 
@@ -126,21 +151,37 @@ struct ShenlunWorkspaceTextPaperPage: UIViewRepresentable {
     let text: NSAttributedString
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        makeTextView()
+    }
+
+    func makeTextView() -> UITextView {
+        // The paginator uses NSLayoutManager, so the reader uses the same layout engine.
+        let view = UITextView(usingTextLayoutManager: false)
         view.isEditable = false
         view.isSelectable = true
         view.isScrollEnabled = false
+        view.clipsToBounds = true
         view.backgroundColor = .clear
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset = .zero
         view.textContainerInset = .zero
-        view.textContainer.lineFragmentPadding = 0
-        view.textContainer.widthTracksTextView = false
-        view.textContainer.size = CGSize(width: 472, height: 741)
-        view.attributedText = text
+        view.layoutManager.usesFontLeading = true
+        applyPage(to: view)
         return view
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        ShenlunWorkspacePaperLayout.textSize
+    }
+
     func updateUIView(_ view: UITextView, context: Context) {
-        if view.attributedText != text { view.attributedText = text }
-        view.textContainer.size = CGSize(width: 472, height: 741)
+        if view.attributedText != text { applyPage(to: view) }
+    }
+
+    private func applyPage(to view: UITextView) {
+        view.attributedText = text
+        ShenlunWorkspacePaperLayout.configure(view.textContainer)
+        view.layoutManager.ensureLayout(for: view.textContainer)
+        view.setContentOffset(.zero, animated: false)
     }
 }

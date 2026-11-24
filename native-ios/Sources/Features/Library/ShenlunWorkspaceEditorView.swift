@@ -11,7 +11,6 @@ struct ShenlunWorkspaceEditorView: View {
     }
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
 
     let practiceID: String?
     let questionID: String?
@@ -19,12 +18,15 @@ struct ShenlunWorkspaceEditorView: View {
     let onSaved: (String, String) -> Void
 
     @State private var practice: ShenlunWorkspacePractice?
-    @State private var question: ShenlunWorkspaceQuestion
+    @State private var questionDrafts: [ShenlunWorkspaceQuestion]
+    @State private var selectedQuestionID: String
+    @State private var draftPracticeID: String
+    @State private var compactPaperSection: ShenlunPaperPasteKind = .materials
+    @State private var batchPasteKind: ShenlunPaperPasteKind?
     @State private var materials: [ShenlunWorkspaceMaterial] = []
     @State private var materialFormatting: [String: MaterialFormattingState] = [:]
     @State private var newAssets: [ShenlunWorkspaceAsset] = []
     @State private var deletingAssetIDs = Set<String>()
-    @State private var selectedMaterialIDs = Set<String>()
     @State private var originalQuestion: ShenlunWorkspaceQuestion?
     @State private var originalMaterials: [ShenlunWorkspaceMaterial] = []
     @State private var pageRangeText: [String: String] = [:]
@@ -34,7 +36,6 @@ struct ShenlunWorkspaceEditorView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var didLoad = false
-    @State private var didDecideMaterials = false
     @State private var deletingMaterialIDs = Set<String>()
 
     init(
@@ -49,10 +50,31 @@ struct ShenlunWorkspaceEditorView: View {
         self.kind = kind
         self.onSaved = onSaved
         let initialType = practiceID == nil && questionID == nil && kind == .single ? preferredQuestionType : .single
-        _question = State(initialValue: ShenlunWorkspaceQuestion(practiceID: practiceID ?? "", order: 0, type: initialType))
+        let draftID = practiceID ?? UUID().uuidString
+        let initial = ShenlunWorkspaceQuestion(practiceID: draftID, order: 0, type: initialType)
+        _draftPracticeID = State(initialValue: draftID)
+        _selectedQuestionID = State(initialValue: initial.id)
+        _questionDrafts = State(initialValue: [initial])
     }
 
     private var isEditingQuestion: Bool { questionID != nil }
+    private var isCreatingPaper: Bool { kind == .paper && practiceID == nil }
+
+    private var question: ShenlunWorkspaceQuestion {
+        questionDrafts.first { $0.id == selectedQuestionID } ?? questionDrafts[0]
+    }
+
+    private var questionBinding: Binding<ShenlunWorkspaceQuestion> {
+        let initial = question
+        return Binding(
+            get: { questionDrafts.first { $0.id == initial.id } ?? initial },
+            set: { value in
+                guard let index = questionDrafts.firstIndex(where: { $0.id == initial.id }) else { return }
+                questionDrafts[index] = value
+            }
+        )
+    }
+
     private var navigationTitle: String {
         if isEditingQuestion { return "编辑题目" }
         if practiceID != nil { return "录入套卷题目" }
@@ -63,7 +85,9 @@ struct ShenlunWorkspaceEditorView: View {
         GeometryReader { proxy in
             ScrollView {
                 Group {
-                    if proxy.size.width >= 900 {
+                    if isCreatingPaper {
+                        paperEditor(twoColumns: proxy.size.width >= 900)
+                    } else if proxy.size.width >= 900 {
                         HStack(alignment: .top, spacing: 16) {
                             VStack(spacing: 14) {
                                 questionContentSection
@@ -94,13 +118,10 @@ struct ShenlunWorkspaceEditorView: View {
         }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { dismiss() }
-                    .disabled(isSaving)
-            }
             ToolbarItem(placement: .confirmationAction) {
-                Button(isSaving ? "保存中…" : kind == .paper && practiceID == nil ? "保存套卷" : "保存题目", action: save)
+                Button(isSaving ? "保存中…" : (isCreatingPaper ? "保存套卷" : "保存题目"), action: save)
                     .fontWeight(.semibold)
                     .disabled(isSaving)
             }
@@ -111,8 +132,13 @@ struct ShenlunWorkspaceEditorView: View {
             allowsMultipleSelection: true,
             onCompletion: handleFileSelection
         )
+        .sheet(item: $batchPasteKind) { kind in
+            ShenlunPaperPasteSheet(kind: kind) { entries in
+                appendPasted(entries, kind: kind)
+            }
+        }
         .task { loadExistingDraftIfNeeded() }
-        .alert("无法保存申论题目", isPresented: Binding(
+        .alert(isCreatingPaper ? "无法保存套卷" : "无法保存申论题目", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -122,27 +148,151 @@ struct ShenlunWorkspaceEditorView: View {
         }
     }
 
+    private func paperEditor(twoColumns: Bool) -> some View {
+        VStack(spacing: 14) {
+            editorCard("套卷信息", icon: "doc.on.doc") {
+                TextField("套卷名称（必填）", text: $draftPracticeName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 15))
+                    .accessibilityIdentifier("shenlun-paper-name")
+            }
+            if twoColumns {
+                HStack(alignment: .top, spacing: 16) {
+                    materialsSection
+                    paperQuestions
+                }
+            } else {
+                Picker("套卷内容", selection: $compactPaperSection) {
+                    Text("给定材料").tag(ShenlunPaperPasteKind.materials)
+                    Text("题目（\(questionDrafts.count)）").tag(ShenlunPaperPasteKind.questions)
+                }
+                .pickerStyle(.segmented)
+                if compactPaperSection == .materials {
+                    materialsSection
+                } else {
+                    paperQuestions
+                }
+            }
+        }
+    }
+
+    private var paperQuestions: some View {
+        VStack(spacing: 14) {
+            editorCard("题目", icon: "list.number") {
+                NativeTagFlow(spacing: 7) {
+                    ForEach(Array(questionDrafts.enumerated()), id: \.element.id) { index, draft in
+                        let selected = draft.id == selectedQuestionID
+                        Button("第 \(index + 1) 题") { selectedQuestionID = draft.id }
+                            .font(AppTheme.auxiliaryFont.weight(.semibold))
+                            .foregroundStyle(selected ? AppTheme.accent : Color.primary)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 34)
+                            .background(selected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                NativeTagFlow(spacing: 10) {
+                    Button { appendQuestion() } label: { Label("新增题目", systemImage: "plus") }
+                    Button { batchPasteKind = .questions } label: {
+                        Label("批量粘贴题目", systemImage: "doc.on.clipboard")
+                    }
+                    if questionDrafts.count > 1 {
+                        Button("移除本题", role: .destructive, action: removeSelectedQuestion)
+                    }
+                }
+            }
+            VStack(spacing: 14) {
+                questionInformationSection
+                questionContentSection
+                referenceAnswerSection
+            }
+            .id(question.id)
+        }
+    }
+
+    private func appendQuestion() {
+        let draft = ShenlunWorkspaceQuestion(practiceID: draftPracticeID, order: questionDrafts.count)
+        questionDrafts.append(draft)
+        selectedQuestionID = draft.id
+    }
+
+    private func removeSelectedQuestion() {
+        guard questionDrafts.count > 1,
+              let index = questionDrafts.firstIndex(where: { $0.id == selectedQuestionID }) else { return }
+        questionDrafts.remove(at: index)
+        selectedQuestionID = questionDrafts[min(index, questionDrafts.count - 1)].id
+    }
+
+    private func appendTextMaterial(title: String? = nil, text: String = "") {
+        let material = ShenlunWorkspaceMaterial(
+            practiceID: draftPracticeID,
+            title: title ?? "材料 \(materials.count + 1)",
+            order: materials.count,
+            kind: .text,
+            text: text
+        )
+        materials.append(material)
+        attachNewMaterialIfEditingOneQuestion(material.id)
+        if !text.isEmpty { formatMaterial(id: material.id, reportsUnchanged: false) }
+    }
+
+    private func attachNewMaterialIfEditingOneQuestion(_ id: String) {
+        guard !isCreatingPaper else { return }
+        let draft = questionBinding
+        setQuestionMaterials(draft.wrappedValue.materialIDs + [id], for: draft)
+    }
+
+    private func appendPasted(_ entries: [ShenlunPaperPasteEntry], kind: ShenlunPaperPasteKind) {
+        if kind == .materials {
+            for entry in entries { appendTextMaterial(title: entry.heading, text: entry.text) }
+            return
+        }
+        let current = question
+        let initial = ShenlunWorkspaceQuestion(id: current.id, practiceID: draftPracticeID, order: 0)
+        let replacesBlankQuestion = questionDrafts.count == 1 && current == initial
+        let firstOrder = replacesBlankQuestion ? 0 : questionDrafts.count
+        let drafts = entries.enumerated().map { index, entry in
+            ShenlunWorkspaceQuestion(
+                practiceID: draftPracticeID,
+                order: firstOrder + index,
+                originalNumber: entry.heading ?? "",
+                title: entry.text,
+                instructions: entry.instructions
+            )
+        }
+        guard let first = drafts.first else { return }
+        if replacesBlankQuestion {
+            questionDrafts = drafts
+        } else {
+            questionDrafts.append(contentsOf: drafts)
+        }
+        compactPaperSection = .questions
+        selectedQuestionID = first.id
+    }
+
     private var questionInformationSection: some View {
-        editorCard("题目信息") {
-            if kind == .paper {
+        let draft = questionBinding
+        return editorCard("题目信息", icon: "info.circle") {
+            if kind == .paper, !isCreatingPaper {
                 editorFieldTitle("套卷名称")
                 TextField("必填，例如：2026 年国考申论", text: $draftPracticeName)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 15))
             }
             editorFieldTitle("题型")
-            Picker("题型", selection: $question.type) {
+            Picker("题型", selection: draft.type) {
                 ForEach(ShenlunWorkspaceQuestionType.allCases) { type in
                     Text(type.title).tag(type)
                 }
             }
             .pickerStyle(.segmented)
             editorFieldTitle("题目来源")
-            TextField("可选，例如：2025 年国考", text: $question.source)
+            TextField("可选，例如：2025 年国考", text: draft.source)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 15))
             editorFieldTitle("原题号")
-            TextField("可选", text: $question.originalNumber)
+            TextField("可选", text: draft.originalNumber)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 15))
             editorFieldTitle("分值与字数范围")
@@ -163,18 +313,24 @@ struct ShenlunWorkspaceEditorView: View {
             .font(.system(size: 15))
             if !materials.isEmpty {
                 editorFieldTitle("关联材料")
+                if isCreatingPaper {
+                    HStack(spacing: 12) {
+                        Button("关联全部") { setQuestionMaterials(materials.map(\.id), for: draft) }
+                        Button("本题无需材料") { setQuestionMaterials([], for: draft) }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AppTheme.accent)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(materials) { material in
-                        Toggle(material.title, isOn: materialSelectionBinding(material))
+                        Toggle(material.title, isOn: materialSelectionBinding(material, question: draft))
                             .font(.system(size: 14))
                             .tint(AppTheme.accent)
                     }
                 }
             } else {
-                Button("明确无需材料") {
-                    selectedMaterialIDs.removeAll()
-                    didDecideMaterials = true
-                    practice?.materialDecisionMade = true
+                Button(draft.wrappedValue.materialDecisionMade == true ? "已设为无需材料" : "明确无需材料") {
+                    setQuestionMaterials([], for: draft)
                 }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -183,10 +339,10 @@ struct ShenlunWorkspaceEditorView: View {
     }
 
     private var questionContentSection: some View {
-        editorCard("题干与作答要求") {
+        editorCard("题干与作答要求", icon: "list.bullet.rectangle") {
             editorFieldTitle("题干（必填）")
             ShenlunAdaptiveTextEditor(
-                text: $question.title,
+                text: questionBinding.title,
                 minimumHeight: 160,
                 growsWithContent: true,
                 fontSize: 15,
@@ -194,7 +350,7 @@ struct ShenlunWorkspaceEditorView: View {
             )
             editorFieldTitle("作答要求")
             ShenlunAdaptiveTextEditor(
-                text: $question.instructions,
+                text: questionBinding.instructions,
                 minimumHeight: 90,
                 growsWithContent: true,
                 fontSize: 15,
@@ -204,43 +360,36 @@ struct ShenlunWorkspaceEditorView: View {
     }
 
     private var materialsSection: some View {
-        editorCard("给定材料") {
+        editorCard("给定材料", icon: "doc.text") {
             if materials.isEmpty {
-                Text("可以粘贴材料文字、导入 PDF 页或添加图片。尚未决定时，练习详情会保留“尚未设置”的状态。")
+                Text(isCreatingPaper
+                     ? "整卷共享材料库。每道题可在「关联材料」里选择所需材料。"
+                     : "可以粘贴材料文字、导入 PDF 页或添加图片。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(materials.indices, id: \.self) { index in
-                materialEditorRow(at: index)
-            }
-            HStack(spacing: 9) {
-                Button {
-                    let material = ShenlunWorkspaceMaterial(
-                        practiceID: practiceID ?? practice?.id ?? "",
-                        title: "材料 \(materials.count + 1)",
-                        order: materials.count,
-                        kind: .text
-                    )
-                    materials.append(material)
-                    selectedMaterialIDs.insert(material.id)
-                    didDecideMaterials = true
-                    practice?.materialDecisionMade = true
-                } label: {
-                    Label("粘贴文字", systemImage: "text.alignleft")
+            NativeTagFlow(spacing: 10) {
+                Button { appendTextMaterial() } label: {
+                    Label(isCreatingPaper ? "新增文字材料" : "粘贴文字", systemImage: "text.alignleft")
+                }
+                if isCreatingPaper {
+                    Button { batchPasteKind = .materials } label: {
+                        Label("批量粘贴材料", systemImage: "doc.on.clipboard")
+                    }
                 }
                 Button { isImportingFiles = true } label: {
                     Label("导入 PDF / 图片", systemImage: "paperclip")
                 }
             }
-            if !materials.isEmpty {
-                Button("本题无需材料") {
-                    selectedMaterialIDs.removeAll()
-                    didDecideMaterials = true
-                    practice?.materialDecisionMade = true
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+            ForEach(Array(materials.enumerated()), id: \.element.id) { index, _ in
+                materialEditorRow(at: index)
+            }
+            if !isCreatingPaper, !materials.isEmpty {
+                let draft = questionBinding
+                Button("本题无需材料") { setQuestionMaterials([], for: draft) }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -271,13 +420,16 @@ struct ShenlunWorkspaceEditorView: View {
                 .accessibilityLabel("删除材料")
             }
             if material.kind == .text {
-                TextEditor(text: materialTextBinding(id: material.id))
-                    .font(.system(size: 15))
-                    .frame(minHeight: 140)
-                    .padding(4)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 9))
-                    .overlay { RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.1), lineWidth: 0.7) }
-                    .accessibilityIdentifier("shenlun-material-text-\(index)")
+                ShenlunAdaptiveTextEditor(
+                    text: materialTextBinding(id: material.id),
+                    minimumHeight: 148,
+                    growsWithContent: false,
+                    fontSize: 15,
+                    accessibilityIdentifier: "shenlun-material-text-\(index)",
+                    onFormattedMaterialPaste: { edit in
+                        applyMaterialFormatting(id: material.id, formatted: edit.formattedText, restore: edit.restoredText)
+                    }
+                )
                 materialFormattingControls(for: material)
             } else if material.kind == .pdf {
                 Text("PDF：\(material.sourceName ?? "已选择文件") · \(pageCounts[material.id].map(String.init) ?? "? 页")")
@@ -318,11 +470,11 @@ struct ShenlunWorkspaceEditorView: View {
     }
 
     private var referenceAnswerSection: some View {
-        editorCard("预录参考答案") {
+        editorCard("预录参考答案", icon: "doc.plaintext") {
             Text("参考答案会在该题完成独立作答后才显示。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             ShenlunAdaptiveTextEditor(
-                text: $question.referenceAnswer,
+                text: questionBinding.referenceAnswer,
                 minimumHeight: 180,
                 growsWithContent: true,
                 fontSize: 15,
@@ -331,43 +483,57 @@ struct ShenlunWorkspaceEditorView: View {
         }
     }
 
-    private func editorCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text(title).font(.system(size: 15, weight: .semibold))
+    private func editorCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .medium))
             content()
         }
-        .padding(20)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8)
+                .allowsHitTesting(false)
+        }
     }
 
     private func editorFieldTitle(_ title: String) -> some View {
-        Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
     }
 
     private var fullScoreBinding: Binding<String> {
-        Binding(get: { question.fullScore.map { String($0) } ?? "" }, set: { question.fullScore = Double($0) })
+        let draft = questionBinding
+        return Binding(get: { draft.wrappedValue.fullScore.map { String($0) } ?? "" }, set: { draft.wrappedValue.fullScore = Double($0) })
     }
 
     private var minimumWordCountBinding: Binding<String> {
-        Binding(get: { question.minimumWordCount.map(String.init) ?? "" }, set: { question.minimumWordCount = Int($0) })
+        let draft = questionBinding
+        return Binding(get: { draft.wrappedValue.minimumWordCount.map(String.init) ?? "" }, set: { draft.wrappedValue.minimumWordCount = Int($0) })
     }
 
     private var maximumWordCountBinding: Binding<String> {
-        Binding(get: { question.maximumWordCount.map(String.init) ?? "" }, set: { value in
-            question.maximumWordCount = Int(value)
+        let draft = questionBinding
+        return Binding(get: { draft.wrappedValue.maximumWordCount.map(String.init) ?? "" }, set: { value in
+            draft.wrappedValue.maximumWordCount = Int(value)
             if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                question.minimumWordCount = nil
+                draft.wrappedValue.minimumWordCount = nil
             }
         })
     }
 
-    private func materialSelectionBinding(_ material: ShenlunWorkspaceMaterial) -> Binding<Bool> {
-        Binding(get: { selectedMaterialIDs.contains(material.id) }, set: { isSelected in
-            if isSelected { selectedMaterialIDs.insert(material.id) } else { selectedMaterialIDs.remove(material.id) }
-            didDecideMaterials = true
-            practice?.materialDecisionMade = true
+    private func setQuestionMaterials(_ ids: [String], for draft: Binding<ShenlunWorkspaceQuestion>) {
+        var updated = draft.wrappedValue
+        updated.materialIDs = ids
+        updated.materialDecisionMade = true
+        draft.wrappedValue = updated
+    }
+
+    private func materialSelectionBinding(_ material: ShenlunWorkspaceMaterial, question draft: Binding<ShenlunWorkspaceQuestion>) -> Binding<Bool> {
+        Binding(get: { draft.wrappedValue.materialIDs.contains(material.id) }, set: { isSelected in
+            var ids = draft.wrappedValue.materialIDs.filter { $0 != material.id }
+            if isSelected { ids.append(material.id) }
+            setQuestionMaterials(ids, for: draft)
         })
     }
 
@@ -388,17 +554,25 @@ struct ShenlunWorkspaceEditorView: View {
         })
     }
 
-    private func formatMaterial(id: String) {
-        guard let index = materials.firstIndex(where: { $0.id == id }), materials[index].kind == .text else { return }
-        let material = materials[index]
+    private func formatMaterial(id: String, reportsUnchanged: Bool = true) {
+        guard let material = materials.first(where: { $0.id == id }), material.kind == .text else { return }
         let formatted = ShenlunMaterialTextFormatter.format(material.text)
         guard formatted != material.text else {
-            materialFormatting[id] = .unchanged
+            if reportsUnchanged { materialFormatting[id] = .unchanged }
             return
         }
-        materialFormatting[id] = .undo(text: material.text, versionID: material.versionID)
-        materials[index].text = formatted
-        materials[index].versionID = UUID().uuidString
+        applyMaterialFormatting(id: id, formatted: formatted, restore: material.text)
+    }
+
+    private func applyMaterialFormatting(id: String, formatted: String, restore: String) {
+        guard let index = materials.firstIndex(where: { $0.id == id }), materials[index].kind == .text else { return }
+        let material = materials[index]
+        let restoredVersionID = material.text == restore ? material.versionID : UUID().uuidString
+        materialFormatting[id] = .undo(text: restore, versionID: restoredVersionID)
+        if material.text != formatted {
+            materials[index].text = formatted
+            materials[index].versionID = UUID().uuidString
+        }
     }
 
     private func undoMaterialFormatting(id: String) {
@@ -422,11 +596,17 @@ struct ShenlunWorkspaceEditorView: View {
 
     private func removeMaterial(id: String) {
         guard let removed = materials.first(where: { $0.id == id }) else { return }
-        if let practiceID,
-           let otherQuestions = try? ShenlunWorkspaceRepository.questions(practiceID: practiceID, in: modelContext),
-           otherQuestions.contains(where: { $0.id != questionID && $0.materialIDs.contains(id) }) {
-            errorMessage = "这份材料还关联着套卷中的其他题目。请先在对应题目取消关联，再删除材料。"
-            return
+        if let practiceID {
+            do {
+                let storedQuestions = try ShenlunWorkspaceRepository.questions(practiceID: practiceID, in: modelContext)
+                if storedQuestions.contains(where: { $0.id != questionID && $0.materialIDs.contains(id) }) {
+                    errorMessage = "这份材料还关联着套卷中的其他题目。请先在对应题目取消关联，再删除材料。"
+                    return
+                }
+            } catch {
+                errorMessage = "无法核对这份材料的关联题目，请重试：\(error.localizedDescription)"
+                return
+            }
         }
         if practiceID != nil { deletingMaterialIDs.insert(id) }
         if let assetID = removed.assetID {
@@ -438,24 +618,20 @@ struct ShenlunWorkspaceEditorView: View {
         }
         materials.removeAll { $0.id == id }
         materialFormatting.removeValue(forKey: id)
-        selectedMaterialIDs.remove(id)
+        for index in questionDrafts.indices {
+            questionDrafts[index].materialIDs.removeAll { $0 == id }
+        }
         for index in materials.indices { materials[index].order = index }
     }
 
     private func loadExistingDraftIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
-        guard let practiceID else {
-            if kind == .single {
-                question.practiceID = UUID().uuidString
-            }
-            return
-        }
+        guard let practiceID else { return }
         do {
             practice = try ShenlunWorkspaceRepository.practice(id: practiceID, in: modelContext)
             guard let practice else { throw CocoaError(.fileNoSuchFile) }
             draftPracticeName = practice.name
-            question.practiceID = practiceID
             materials = try ShenlunWorkspaceRepository.materials(practiceID: practiceID, in: modelContext)
             originalMaterials = materials
             for material in materials {
@@ -466,24 +642,25 @@ struct ShenlunWorkspaceEditorView: View {
                     pageRangeText[material.id] = Self.formatPDFSelection(material.selectedPDFPageIndices)
                 }
             }
-            selectedMaterialIDs = Set((try ShenlunWorkspaceRepository.questions(practiceID: practiceID, in: modelContext)
-                .first(where: { $0.id == questionID })?.materialIDs) ?? [])
+            let loadedDraft: ShenlunWorkspaceQuestion
             if let questionID {
-                guard let loaded = try ShenlunWorkspaceRepository.question(id: questionID, in: modelContext) else {
+                guard var loaded = try ShenlunWorkspaceRepository.question(id: questionID, in: modelContext),
+                      loaded.practiceID == practiceID else {
                     throw CocoaError(.fileNoSuchFile)
                 }
-                question = loaded
                 originalQuestion = loaded
-                didDecideMaterials = loaded.materialDecisionMade ?? practice.materialDecisionMade
+                loaded.materialDecisionMade = loaded.materialDecisionMade ?? practice.materialDecisionMade
+                loadedDraft = loaded
             } else {
-                question = ShenlunWorkspaceQuestion(
+                loadedDraft = ShenlunWorkspaceQuestion(
+                    id: question.id,
                     practiceID: practiceID,
                     order: practice.questionIDs.count,
                     type: .single
                 )
-                selectedMaterialIDs = []
-                didDecideMaterials = false
             }
+            questionDrafts = [loadedDraft]
+            selectedQuestionID = loadedDraft.id
         } catch {
             errorMessage = "無法載入原有草稿：\(error.localizedDescription)"
         }
@@ -512,7 +689,7 @@ struct ShenlunWorkspaceEditorView: View {
                     guard let document = PDFDocument(data: data), document.pageCount > 0 else {
                         throw CocoaError(.fileReadCorruptFile)
                     }
-                    let asset = ShenlunWorkspaceAsset(id: UUID().uuidString, practiceID: practiceID ?? practice?.id ?? "", fileName: url.lastPathComponent, mimeType: "application/pdf", data: data)
+                    let asset = ShenlunWorkspaceAsset(id: UUID().uuidString, practiceID: draftPracticeID, fileName: url.lastPathComponent, mimeType: "application/pdf", data: data)
                     let material = ShenlunWorkspaceMaterial(
                         practiceID: asset.practiceID,
                         title: url.deletingPathExtension().lastPathComponent,
@@ -523,14 +700,11 @@ struct ShenlunWorkspaceEditorView: View {
                     )
                     newAssets.append(asset)
                     materials.append(material)
-                    selectedMaterialIDs.insert(material.id)
-                    didDecideMaterials = true
+                    attachNewMaterialIfEditingOneQuestion(material.id)
                     pageCounts[material.id] = document.pageCount
-                    pageRangeText[material.id] = ""
-                    practice?.materialDecisionMade = true
                 } else {
                     guard UIImage(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
-                    let asset = ShenlunWorkspaceAsset(id: UUID().uuidString, practiceID: practiceID ?? practice?.id ?? "", fileName: url.lastPathComponent, mimeType: "image/\(extensionName.isEmpty ? "jpeg" : extensionName)", data: data)
+                    let asset = ShenlunWorkspaceAsset(id: UUID().uuidString, practiceID: draftPracticeID, fileName: url.lastPathComponent, mimeType: "image/\(extensionName.isEmpty ? "jpeg" : extensionName)", data: data)
                     let material = ShenlunWorkspaceMaterial(
                         practiceID: asset.practiceID,
                         title: url.deletingPathExtension().lastPathComponent,
@@ -541,9 +715,7 @@ struct ShenlunWorkspaceEditorView: View {
                     )
                     newAssets.append(asset)
                     materials.append(material)
-                    selectedMaterialIDs.insert(material.id)
-                    didDecideMaterials = true
-                    practice?.materialDecisionMade = true
+                    attachNewMaterialIfEditingOneQuestion(material.id)
                 }
             } catch {
                 errorMessage = "无法读取 \(url.lastPathComponent)：\(error.localizedDescription)"
@@ -554,91 +726,110 @@ struct ShenlunWorkspaceEditorView: View {
 
     private func save() {
         guard !isSaving else { return }
-        let trimmedTitle = question.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { errorMessage = "题干不能为空。"; return }
+        if practiceID != nil, practice == nil || (isEditingQuestion && originalQuestion == nil) {
+            errorMessage = "原有练习未载入，请返回后重试。"
+            return
+        }
         let name = draftPracticeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if kind == .paper && name.isEmpty { errorMessage = "套卷名称不能为空。"; return }
-        if !fullScoreBinding.wrappedValue.isEmpty,
-           question.fullScore == nil || question.fullScore.map({ !$0.isFinite || $0 <= 0 }) == true {
-            errorMessage = "满分请填写大于 0 的数字。"; return
+        if kind == .paper && name.isEmpty {
+            errorMessage = "套卷名称不能为空。"
+            return
         }
-        let lower = minimumWordCountBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let upper = maximumWordCountBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !lower.isEmpty && question.minimumWordCount == nil { errorMessage = "字数下限必须是正整数。"; return }
-        if !upper.isEmpty && question.maximumWordCount == nil { errorMessage = "字数上限必须是正整数。"; return }
-        if let minCount = question.minimumWordCount, minCount <= 0 { errorMessage = "字数下限必须是正整数。"; return }
-        if let maxCount = question.maximumWordCount, maxCount <= 0 { errorMessage = "字数上限必须是正整数。"; return }
-        if question.minimumWordCount != nil && question.maximumWordCount == nil { errorMessage = "填写字数下限时，必须同时填写字数上限。"; return }
-        if let minCount = question.minimumWordCount, let maxCount = question.maximumWordCount, minCount > maxCount {
-            errorMessage = "字数下限不能大于字数上限。"; return
-        }
-
-        for index in materials.indices where materials[index].kind == .pdf {
-            guard let pageCount = pageCounts[materials[index].id],
-                  let selected = Self.parsePDFSelection(pageRangeText[materials[index].id] ?? "", pageCount: pageCount),
-                  !selected.isEmpty else {
-                errorMessage = "请为每份 PDF 选择有效页码范围，例如 1-3,5。"
+        for (index, draft) in questionDrafts.enumerated() {
+            if let message = validationMessage(for: draft) {
+                selectedQuestionID = draft.id
+                compactPaperSection = .questions
+                errorMessage = isCreatingPaper ? "第 \(index + 1) 题：\(message)" : message
                 return
             }
-            materials[index].selectedPDFPageIndices = selected
         }
 
-        isSaving = true
-        errorMessage = nil
-        let now = Date.now
-        let newPracticeID = practiceID ?? UUID().uuidString
-        question.practiceID = newPracticeID
-        question.title = trimmedTitle
-        question.materialIDs = materials.map(\.id).filter { selectedMaterialIDs.contains($0) }
-        question.materialDecisionMade = didDecideMaterials || !selectedMaterialIDs.isEmpty
-        question.revision += 1
+        var savedMaterials = materials
+        for index in savedMaterials.indices {
+            let material = savedMaterials[index]
+            if isCreatingPaper, material.kind == .text, material.text.allSatisfy(\.isWhitespace) {
+                compactPaperSection = .materials
+                errorMessage = "\(material.title)的正文为空，请补录或移除这份材料。"
+                return
+            }
+            if material.kind == .pdf {
+                guard let pageCount = pageCounts[material.id],
+                      let selected = ShenlunPDFPageSelectionPolicy.parse(pageRangeText[material.id] ?? "", pageCount: pageCount) else {
+                    compactPaperSection = .materials
+                    errorMessage = "请为「\(material.title)」选择有效的 PDF 页码范围，例如 1-3,5。"
+                    return
+                }
+                savedMaterials[index].selectedPDFPageIndices = selected
+            }
+        }
+
+        let materialIDs = savedMaterials.map(\.id)
         var savedPractice = practice ?? ShenlunWorkspacePractice(
-            id: newPracticeID,
-            name: kind == .single ? trimmedTitle : name,
+            id: draftPracticeID,
+            name: kind == .single ? question.title.trimmingCharacters(in: .whitespacesAndNewlines) : name,
             kind: kind
         )
-        if kind == .paper { savedPractice.name = name }
-        if let questionID {
-            question.id = questionID
-        } else {
-            question.order = savedPractice.questionIDs.count
-            savedPractice.questionIDs.append(question.id)
+        let savedQuestions = questionDrafts.enumerated().map { index, draft in
+            var saved = draft
+            saved.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            saved.materialIDs = materialIDs.filter { draft.materialIDs.contains($0) }
+            saved.materialDecisionMade = draft.materialDecisionMade == true || !saved.materialIDs.isEmpty
+            saved.revision += 1
+            if questionID == nil { saved.order = savedPractice.questionIDs.count + index }
+            return saved
         }
-        savedPractice.materialIDs = materials.map(\.id)
-        savedPractice.materialDecisionMade = didDecideMaterials || savedPractice.materialDecisionMade || !materials.isEmpty || !selectedMaterialIDs.isEmpty
-        savedPractice.updatedAt = now
-        for index in materials.indices { materials[index].practiceID = newPracticeID }
-        for index in newAssets.indices { newAssets[index].practiceID = newPracticeID }
+        guard let firstQuestion = savedQuestions.first else { return }
+        if kind == .paper { savedPractice.name = name }
+        if questionID == nil { savedPractice.questionIDs.append(contentsOf: savedQuestions.map(\.id)) }
+        savedPractice.materialIDs = materialIDs
+        savedPractice.materialDecisionMade = savedPractice.materialDecisionMade || !materialIDs.isEmpty
+            || savedQuestions.contains { $0.materialDecisionMade == true }
+        savedPractice.updatedAt = .now
 
+        isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
         do {
-            let existingAnswer = try ShenlunWorkspaceRepository.answer(questionID: question.id, in: modelContext)
-            var answerUpdate: ShenlunWorkspaceAnswer?
-            if let existingAnswer, existingAnswer.confirmedScore != nil, scoringInputsChanged(practice: savedPractice) {
-                var answer = existingAnswer
-                answer.reviewState = .needsReview
-                answer.revision += 1
-                answerUpdate = answer
+            if isCreatingPaper {
+                try ShenlunWorkspaceRepository.saveNewPractice(
+                    savedPractice, questions: savedQuestions, materials: savedMaterials, assets: newAssets, in: modelContext
+                )
+            } else {
+                try ShenlunWorkspaceRepository.savePracticeAndQuestion(
+                    savedPractice,
+                    firstQuestion,
+                    createdAt: savedPractice.createdAt,
+                    materials: savedMaterials,
+                    assets: newAssets,
+                    markScoresForReview: scoringInputsChanged(question: firstQuestion, practice: savedPractice, materials: savedMaterials),
+                    deletingMaterialIDs: Array(deletingMaterialIDs),
+                    deletingAssetIDs: Array(deletingAssetIDs),
+                    in: modelContext
+                )
             }
-            try ShenlunWorkspaceRepository.savePracticeAndQuestion(
-                savedPractice,
-                question,
-                createdAt: savedPractice.createdAt,
-                materials: materials,
-                assets: newAssets,
-                answerUpdate: answerUpdate,
-                deletingMaterialIDs: Array(deletingMaterialIDs),
-                deletingAssetIDs: Array(deletingAssetIDs),
-                in: modelContext
-            )
-            isSaving = false
-            onSaved(savedPractice.id, question.id)
+            onSaved(savedPractice.id, firstQuestion.id)
         } catch {
-            isSaving = false
             errorMessage = "保存失败，内容仍保留在当前表单：\(error.localizedDescription)"
         }
     }
 
-    private func scoringInputsChanged(practice savedPractice: ShenlunWorkspacePractice) -> Bool {
+    private func validationMessage(for question: ShenlunWorkspaceQuestion) -> String? {
+        if question.title.allSatisfy(\.isWhitespace) { return "题干不能为空。" }
+        if let score = question.fullScore, !score.isFinite || score <= 0 { return "满分请填写大于 0 的数字。" }
+        if let maximum = question.maximumWordCount, maximum <= 0 { return "字数上限必须是正整数。" }
+        if let minimum = question.minimumWordCount {
+            if minimum <= 0 { return "字数下限必须是正整数。" }
+            guard let maximum = question.maximumWordCount else { return "填写字数下限时，必须同时填写字数上限。" }
+            if minimum > maximum { return "字数下限不能大于字数上限。" }
+        }
+        return nil
+    }
+
+    private func scoringInputsChanged(
+        question: ShenlunWorkspaceQuestion,
+        practice savedPractice: ShenlunWorkspacePractice,
+        materials: [ShenlunWorkspaceMaterial]
+    ) -> Bool {
         guard let originalQuestion else { return false }
         let questionChanged = originalQuestion.title != question.title
             || originalQuestion.instructions != question.instructions
@@ -651,28 +842,6 @@ struct ShenlunWorkspaceEditorView: View {
         return questionChanged
             || savedPractice.materialIDs != (practice?.materialIDs ?? [])
             || originalMaterials != materials
-    }
-
-    private static func parsePDFSelection(_ text: String, pageCount: Int) -> [Int]? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, pageCount > 0 else { return nil }
-        var selected = Set<Int>()
-        for component in trimmed.split(separator: ",", omittingEmptySubsequences: false) {
-            let token = component.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else { return nil }
-            let bounds = token.split(separator: "-", omittingEmptySubsequences: false)
-            if bounds.count == 1 {
-                guard let page = Int(bounds[0]), (1...pageCount).contains(page) else { return nil }
-                selected.insert(page - 1)
-            } else if bounds.count == 2,
-                      let first = Int(bounds[0]), let last = Int(bounds[1]),
-                      first > 0, first <= last, last <= pageCount {
-                selected.formUnion((first...last).map { $0 - 1 })
-            } else {
-                return nil
-            }
-        }
-        return selected.sorted()
     }
 
     private static func formatPDFSelection(_ pages: [Int]) -> String {

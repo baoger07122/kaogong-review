@@ -29,7 +29,7 @@ struct LegacyImportSummary: Equatable {
     let counts: [String: Int]
 
     var message: String {
-        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "word_review_plans", "word_review_history", "stickies", "shenlun_workspace_practices", "shenlun_workspace_questions", "shenlun_workspace_materials", "shenlun_workspace_assets", "shenlun_workspace_answers", "shenlun_workspace_drawings", "keyvalue", "questionBankAnswerStates"]
+        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "word_review_plans", "word_review_history", "stickies", "shenlun_workspace_practices", "shenlun_workspace_questions", "shenlun_workspace_materials", "shenlun_workspace_assets", "shenlun_workspace_answers", "shenlun_workspace_attempt_history", "shenlun_workspace_drawings", "keyvalue", "questionBankAnswerStates"]
         let details = order.compactMap { key -> String? in
             guard let value = counts[key], value > 0 else { return nil }
             return "\(key) \(value)"
@@ -76,6 +76,7 @@ enum LegacyBackupImporter {
         ("shenlunWorkspaceMaterials", "shenlun_workspace_materials"),
         ("shenlunWorkspaceAssets", "shenlun_workspace_assets"),
         ("shenlunWorkspaceAnswers", "shenlun_workspace_answers"),
+        ("shenlunWorkspaceAttemptHistory", "shenlun_workspace_attempt_history"),
         ("shenlunWorkspaceDrawings", "shenlun_workspace_drawings")
     ]
 

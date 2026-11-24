@@ -5,15 +5,15 @@ import SwiftUI
 import UIKit
 
 private enum ShenlunReviewSection: String, CaseIterable, Identifiable {
+    case review
     case answer
-    case doubts
-    case score
+    case history
     var id: String { rawValue }
     var title: String {
         switch self {
         case .answer: "对照答案"
-        case .doubts: "逐条答疑"
-        case .score: "评分与分析"
+        case .review: "本次复盘"
+        case .history: "作答历史"
         }
     }
 }
@@ -25,6 +25,7 @@ private struct ShenlunQuestionReadingLocation: Codable {
 
 struct ShenlunPracticeDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var pencilController = PencilDrawingController()
 
     let practice: ShenlunWorkspacePractice
@@ -34,17 +35,26 @@ struct ShenlunPracticeDetailView: View {
 
     @State private var questions: [ShenlunWorkspaceQuestion] = []
     @State private var materials: [ShenlunWorkspaceMaterial] = []
-    @State private var answers: [String: ShenlunWorkspaceAnswer] = [:]
+    @State private var histories: [String: ShenlunWorkspaceAttemptHistory] = [:]
     @State private var questionID: String?
+    @State private var reviewAttemptID: String?
+    @State private var previousReviewAttemptID: String?
+    @State private var reviewDraft = ShenlunWorkspaceReviewDraft()
+    @State private var reviewSaved = false
+    @State private var showsHistoryFromAnswer = false
+    @State private var showsBackfill = false
+    @State private var backfillDate = Date.now
+    @State private var backfillAnswer = ""
     @State private var selectedMaterialID: String?
     @State private var pageIndex = 0
     @State private var zoom: CGFloat = 0.55
     @State private var answerText = ""
     @State private var referenceAnswerDraft = ""
     @State private var answerFocusRequest: UUID?
-    @State private var isEditingCompletedAnswer = false
+    @State private var readingFocusRequest: UUID?
+    @State private var workFocusRequest: UUID?
     @State private var isEditingReferenceAnswer = false
-    @State private var selectedReviewSection: ShenlunReviewSection = .answer
+    @State private var selectedReviewSection: ShenlunReviewSection = .review
     @State private var isDoodling = false
     @State private var isClosingDoodle = false
     @State private var drawingData = ""
@@ -60,7 +70,6 @@ struct ShenlunPracticeDetailView: View {
     @State private var layerName = ""
     @State private var isShowingDoubtEditor = false
     @State private var doubtText = ""
-    @State private var showsDoubts = false
     @State private var answerPaperIndex = 0
     @State private var didLoad = false
 
@@ -87,8 +96,25 @@ struct ShenlunPracticeDetailView: View {
         return questions.firstIndex { $0.id == questionID }
     }
 
-    private var currentAnswer: ShenlunWorkspaceAnswer? {
-        questionID.flatMap { answers[$0] }
+    private var currentHistory: ShenlunWorkspaceAttemptHistory? {
+        questionID.flatMap { histories[$0] }
+    }
+
+    private var reviewAnswer: ShenlunWorkspaceAnswer? {
+        currentHistory?.completed.first { $0.id == reviewAttemptID }
+    }
+
+    private var currentAttemptNumber: Int {
+        reviewAnswer?.attemptNumber ?? currentHistory?.nextNumber ?? 1
+    }
+
+    private var completedCount: Int { currentHistory?.completed.count ?? 0 }
+
+    private var canReturnToReview: Bool { completedCount > 0 }
+
+    private var hasAnswerDraft: Bool {
+        guard let draft = currentHistory?.draft else { return false }
+        return !draft.answerText.isEmpty || !draft.doubts.isEmpty
     }
 
     private var currentMaterial: ShenlunWorkspaceMaterial? {
@@ -127,7 +153,7 @@ struct ShenlunPracticeDetailView: View {
     }
 
     private var drawingLoadKey: String { "\(didLoad)|\(drawingPageID)|\(activeLayer?.id ?? "none")" }
-    private var answerDraftTaskKey: String { "\(didLoad)|\(questionID ?? "")|\(answerText)" }
+    private var answerDraftTaskKey: String { "\(didLoad)|\(questionID ?? "")|\(reviewAttemptID ?? "")|\(answerText)" }
     private var readingLocationDefaultsKey: String { "native.shenlun.reader.\(practice.id)" }
 
     private var sourcePageIndex: Int {
@@ -137,9 +163,10 @@ struct ShenlunPracticeDetailView: View {
     }
 
     private var paperSize: CGSize {
-        guard currentMaterial?.kind != .text, !isRequirementsPage else { return CGSize(width: 612, height: 866) }
-        let aspect = pageAspect.isFinite && pageAspect > 0 ? pageAspect : 612 / 866
-        return CGSize(width: 612, height: 612 / aspect)
+        let textPaper = ShenlunWorkspacePaperLayout.paperSize
+        guard !isRequirementsPage, let currentMaterial, currentMaterial.kind != .text else { return textPaper }
+        let aspect = pageAspect.isFinite && pageAspect > 0 ? pageAspect : textPaper.width / textPaper.height
+        return CGSize(width: textPaper.width, height: textPaper.width / aspect)
     }
 
     private var answerProjection: ShenlunAnswerGridProjection {
@@ -167,18 +194,34 @@ struct ShenlunPracticeDetailView: View {
                     }
                 } else {
                     ScrollViewReader { scroll in
-                        ScrollView {
-                            VStack(spacing: 12) {
-                                leftPane
-                                    .frame(minHeight: 390)
-                                rightPane
-                                    .frame(minHeight: 540)
-                                    .id("shenlun-answer-pane")
+                        VStack(spacing: 0) {
+                            HStack(spacing: 20) {
+                                Button("材料与要求") { scroll.scrollTo("shenlun-reading-pane", anchor: .top) }
+                                Button(reviewAnswer == nil ? "答题纸" : "复盘") { scroll.scrollTo("shenlun-answer-pane", anchor: .top) }
                             }
-                            .padding(.bottom, 16)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            ScrollView {
+                                VStack(spacing: 12) {
+                                    leftPane
+                                        .frame(minHeight: 390)
+                                        .id("shenlun-reading-pane")
+                                    rightPane
+                                        .frame(minHeight: 540)
+                                        .id("shenlun-answer-pane")
+                                }
+                                .padding(.bottom, 16)
+                            }
                         }
                         .onChange(of: answerFocusRequest, initial: true) { _, request in
                             if request != nil { scroll.scrollTo("shenlun-answer-pane", anchor: .top) }
+                        }
+                        .onChange(of: readingFocusRequest) { _, _ in
+                            scroll.scrollTo("shenlun-reading-pane", anchor: .top)
+                        }
+                        .onChange(of: workFocusRequest) { _, _ in
+                            scroll.scrollTo("shenlun-answer-pane", anchor: .top)
                         }
                     }
                 }
@@ -202,8 +245,9 @@ struct ShenlunPracticeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .sheet(isPresented: $isShowingDoubtEditor) { doubtEditorSheet }
+        .sheet(isPresented: $showsBackfill) { backfillSheet }
         .alert("申论工作区", isPresented: Binding(
-            get: { errorMessage != nil },
+            get: { errorMessage != nil && !showsBackfill && !isShowingDoubtEditor },
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("好", role: .cancel) { errorMessage = nil }
@@ -226,15 +270,20 @@ struct ShenlunPracticeDetailView: View {
             _ = persistDrawingNow()
         }
         .task(id: answerDraftTaskKey) {
-            guard didLoad, questionID != nil, !isEditingCompletedAnswer else { return }
+            guard didLoad, questionID != nil, reviewAttemptID == nil else { return }
             do { try await Task.sleep(for: .milliseconds(450)) } catch { return }
             guard !Task.isCancelled else { return }
             persistAnswerDraft()
         }
-        .onDisappear {
-            if didLoad, currentAnswer?.isCompleted != true, answerText != (currentAnswer?.answerText ?? "") {
-                persistAnswerDraft()
-            }
+        .task(id: reviewDraft) {
+            guard didLoad, reviewAttemptID != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(450)) } catch { return }
+            guard !Task.isCancelled else { return }
+            persistReviewDraft()
+        }
+        .onDisappear { persistWorkInProgress() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { persistWorkInProgress() }
         }
         .onChange(of: currentMaterial?.versionID) { _, _ in refreshTextPaperLayout() }
     }
@@ -422,14 +471,17 @@ struct ShenlunPracticeDetailView: View {
     }
 
     private func paperPage(_ attributedText: NSAttributedString) -> some View {
-        ZStack(alignment: .topLeading) {
+        let paperSize = ShenlunWorkspacePaperLayout.paperSize
+        let textSize = ShenlunWorkspacePaperLayout.textSize
+        let origin = ShenlunWorkspacePaperLayout.textOrigin
+        return ZStack(alignment: .topLeading) {
             Color.white
             ShenlunWorkspaceTextPaperPage(text: attributedText)
-                .frame(width: 472, height: 741)
-                .padding(.leading, 70)
-                .padding(.top, 68)
+                .frame(width: textSize.width, height: textSize.height)
+                .padding(.leading, origin.x)
+                .padding(.top, origin.y)
         }
-        .frame(width: 612, height: 866)
+        .frame(width: paperSize.width, height: paperSize.height)
         .overlay { Rectangle().stroke(Color.primary.opacity(0.07), lineWidth: 0.6) }
     }
 
@@ -464,8 +516,13 @@ struct ShenlunPracticeDetailView: View {
             rightHeader
             Divider()
             if let currentQuestion {
-                if currentAnswer?.isCompleted == true {
-                    completedReview(for: currentQuestion)
+                if showsHistoryFromAnswer {
+                    ScrollView {
+                        historySection
+                            .padding(12)
+                    }
+                } else if let reviewAnswer {
+                    completedReview(for: currentQuestion, answer: reviewAnswer)
                 } else {
                     answerInput(for: currentQuestion)
                 }
@@ -480,7 +537,13 @@ struct ShenlunPracticeDetailView: View {
 
     private var rightHeader: some View {
         HStack(spacing: 10) {
-            Text("答题纸").font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(showsHistoryFromAnswer ? "作答历史" : "第 \(currentAttemptNumber) 次作答")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("已完成 \(completedCount) 次")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 6)
             if questions.count > 1, let index = currentQuestionIndex {
                 Button {
@@ -526,7 +589,71 @@ struct ShenlunPracticeDetailView: View {
 
     private func answerInput(for question: ShenlunWorkspaceQuestion) -> some View {
         VStack(spacing: 0) {
-            HStack {
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        answerPaperSection(for: question)
+                            .id("shenlun-answer-paper-start")
+                        doubtsSection
+                    }
+                    .padding(12)
+                }
+                .onChange(of: answerFocusRequest, initial: true) { _, request in
+                    if request != nil { scroll.scrollTo("shenlun-answer-paper-start", anchor: .top) }
+                }
+                .onChange(of: question.id) { _, _ in
+                    scroll.scrollTo("shenlun-answer-paper-start", anchor: .top)
+                }
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    answerNavigation
+                    Spacer(minLength: 8)
+                    completeAnswerButton
+                }
+                VStack(alignment: .trailing, spacing: 0) {
+                    answerNavigation
+                    completeAnswerButton
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.white)
+        }
+    }
+
+    private var answerNavigation: some View {
+        HStack(spacing: 12) {
+            if canReturnToReview {
+                Button("返回上次复盘", action: returnToPreviousReview)
+            }
+            Button("作答历史") {
+                finishKeyboardInput()
+                guard persistAnswerDraft() else { return }
+                answerFocusRequest = nil
+                showsHistoryFromAnswer = true
+            }
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(AppTheme.accent)
+        .frame(minHeight: 44)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var completeAnswerButton: some View {
+        Button("完成作答", action: completeAnswer)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 44)
+            .background(AppTheme.accent, in: Capsule())
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func answerPaperSection(for question: ShenlunWorkspaceQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("答题纸").font(.system(size: 13, weight: .medium))
                 Button(answerFocusRequest == nil ? "键入" : "收起") {
                     if answerFocusRequest == nil {
                         beginAnswerEditing()
@@ -534,72 +661,45 @@ struct ShenlunPracticeDetailView: View {
                         answerFocusRequest = nil
                     }
                 }
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.accent)
-                Spacer()
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AppTheme.accent)
+                .frame(minHeight: 44)
+                Spacer(minLength: 4)
                 if let maximum = question.maximumWordCount {
                     Text("\(answerProjection.occupiedCount)/\(maximum) 格")
                         .font(.system(size: 13, weight: .semibold).monospacedDigit())
                         .foregroundStyle(answerProjection.overflowCount > 0 ? AppTheme.danger : .secondary)
                 } else {
                     Text("未设字数上限 · \(answerText.count) 字")
-                        .font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            ScrollViewReader { scroll in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if let answerFocusRequest {
-                            ShenlunCommittedTextEditor(
-                                text: $answerText,
-                                accessibilityIdentifier: "shenlun-answer-text",
-                                focusRequest: answerFocusRequest
-                            )
-                            .frame(minHeight: question.maximumWordCount == nil ? 220 : 180)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        if question.maximumWordCount != nil {
-                            answerGridPaper(for: question)
-                            if answerProjection.overflowCount > 0 {
-                                Text("超出 \(answerProjection.overflowCount) 格，原文未截断。")
-                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
-                            }
-                        } else if answerFocusRequest == nil {
-                            Button(action: beginAnswerEditing) {
-                                Text(answerText.isEmpty ? "点此键入答案" : answerText)
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(answerText.isEmpty ? Color.secondary : Color.primary)
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(12)
-                    .id("shenlun-answer-paper-start")
-                }
-                .onChange(of: answerFocusRequest, initial: true) { _, request in
-                    if request != nil { scroll.scrollTo("shenlun-answer-paper-start", anchor: .top) }
-                }
+            if let answerFocusRequest {
+                ShenlunCommittedTextEditor(
+                    text: $answerText,
+                    accessibilityIdentifier: "shenlun-answer-text",
+                    focusRequest: answerFocusRequest
+                )
+                .frame(minHeight: question.maximumWordCount == nil ? 220 : 180)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            Spacer(minLength: 0)
-            doubtDisclosure
-            HStack(spacing: 12) {
-                Button("记疑惑") { openDoubtEditor() }
-                    .font(.system(size: 13, weight: .medium))
-                Spacer()
-                Button("完成作答", action: completeAnswer)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .frame(height: 40)
-                    .background(answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.45) : AppTheme.accent, in: Capsule())
-                    .disabled(answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if question.maximumWordCount != nil {
+                answerGridPaper(for: question)
+                if answerProjection.overflowCount > 0 {
+                    Text("超出 \(answerProjection.overflowCount) 格，原文未截断。")
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.danger)
+                }
+            } else if answerFocusRequest == nil {
+                Button(action: beginAnswerEditing) {
+                    Text(answerText.isEmpty ? "点此键入答案" : answerText)
+                        .font(.system(size: 15))
+                        .foregroundStyle(answerText.isEmpty ? Color.secondary : Color.primary)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.white)
         }
     }
 
@@ -658,168 +758,396 @@ struct ShenlunPracticeDetailView: View {
             .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
             .contentShape(Rectangle())
             .onTapGesture(perform: beginAnswerEditing)
+            .accessibilityLabel("红格答题纸")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { beginAnswerEditing() }
         }
     }
 
-    private var doubtDisclosure: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Button {
-                showsDoubts.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Text("已有疑惑")
-                    Text("\(currentAnswer?.doubts.count ?? 0)").foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: showsDoubts ? "chevron.up" : "chevron.down").font(.system(size: 11, weight: .semibold))
+    private var doubtsSection: some View {
+        let doubts = currentHistory?.draft?.doubts ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("疑惑", systemImage: "questionmark.bubble")
+                    .font(.system(size: 15, weight: .medium))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 4)
+                Button(action: openDoubtEditor) {
+                    Label("记疑惑", systemImage: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-                .font(.system(size: 12, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.accent)
             }
-            .buttonStyle(.plain)
-            if showsDoubts {
-                ForEach(currentAnswer?.doubts ?? []) { doubt in
-                    Text(doubt.body).font(.system(size: 12)).frame(maxWidth: .infinity, alignment: .leading)
+            if doubts.isEmpty {
+                Text("还没有记录疑惑")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+            }
+            ForEach(doubts) { doubt in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(doubt.body)
+                        .font(.system(size: 14))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let anchor = doubtAnchor(doubt) {
+                        Button(anchor) { goToDoubtAnchor(doubt) }
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppTheme.accent)
+                    }
                 }
+                .padding(10)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.white)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("shenlun-active-doubts")
     }
 
-    private func completedReview(for question: ShenlunWorkspaceQuestion) -> some View {
+    private func doubtAnchor(_ doubt: ShenlunWorkspaceDoubt) -> String? {
+        guard let page = doubt.pageIndex else { return nil }
+        let title = doubt.materialTitle ?? doubt.materialID.map { id in
+            materials.first { $0.id == id }?.title ?? "材料"
+        } ?? "作答要求"
+        return "\(title) · 第 \(page + 1) 页"
+    }
+
+    private func completedReview(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(scoreDescription(answer, question: question))
+                        .font(.system(size: 14, weight: .semibold))
+                    if let date = answer.completedAt {
+                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button(hasAnswerDraft ? "继续第 \(currentHistory?.nextNumber ?? 1) 次作答" : "再做一次", action: resumeAnswer)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("shenlun-retry-answer")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(Color.white)
+
             HStack(spacing: 5) {
                 ForEach(ShenlunReviewSection.allCases) { section in
-                    Button(section.title) { selectedReviewSection = section }
-                        .font(.system(size: 11, weight: selectedReviewSection == section ? .semibold : .regular))
-                        .foregroundStyle(selectedReviewSection == section ? AppTheme.accent : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 38)
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(selectedReviewSection == section ? AppTheme.accent : .clear).frame(height: 2)
+                    Button(section.title) {
+                        if section != .answer && isEditingReferenceAnswer {
+                            guard saveReferenceAnswer() else { return }
                         }
+                        selectedReviewSection = section
+                    }
+                    .font(.system(size: 13, weight: selectedReviewSection == section ? .semibold : .regular))
+                    .foregroundStyle(selectedReviewSection == section ? AppTheme.accent : .secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(selectedReviewSection == section ? AppTheme.accent : .clear).frame(height: 2)
+                    }
+                    .accessibilityAddTraits(selectedReviewSection == section ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 9)
             .background(Color.white)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if currentAnswer?.reviewState == .needsReview {
+                    if answer.reviewState == .needsReview {
                         Label("题目或参考内容已修改，原评分需复核。", systemImage: "exclamationmark.triangle")
                             .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.warning)
                     }
                     switch selectedReviewSection {
+                    case .review:
+                        localReviewSection(for: question, answer: answer)
                     case .answer:
-                        Text("我的作答").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                        if isEditingCompletedAnswer {
-                            ShenlunCommittedTextEditor(text: $answerText, accessibilityIdentifier: "shenlun-answer-edit")
-                                .frame(minHeight: 220)
-                            Button("保存作答修改") { _ = saveRevisedAnswer() }
-                                .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.accent)
-                        } else {
-                            Text(answerText).font(.system(size: 15)).frame(maxWidth: .infinity, alignment: .leading)
-                            Button("修改作答") { isEditingCompletedAnswer = true }
-                                .font(.system(size: 13, weight: .medium)).foregroundStyle(AppTheme.accent)
-                        }
-                        Divider()
-                        Text("参考答案").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                        if isEditingReferenceAnswer {
-                            TextEditor(text: $referenceAnswerDraft)
-                                .font(.system(size: 15))
-                                .frame(minHeight: 180)
-                                .padding(8)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-                            HStack {
-                                Button("取消") {
-                                    referenceAnswerDraft = question.referenceAnswer
-                                    isEditingReferenceAnswer = false
-                                }
-                                Spacer()
-                                Button("保存参考答案") { _ = saveReferenceAnswer() }
-                                    .font(.system(size: 13, weight: .semibold))
-                            }
-                        } else {
-                            Text(question.referenceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "尚未录入参考答案。" : question.referenceAnswer)
-                                .font(.system(size: 15)).foregroundStyle(question.referenceAnswer.isEmpty ? .secondary : .primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Button("修改参考答案") {
-                                referenceAnswerDraft = question.referenceAnswer
-                                isEditingReferenceAnswer = true
-                            }
-                            .font(.system(size: 13, weight: .medium)).foregroundStyle(AppTheme.accent)
-                        }
-                    case .doubts:
-                        HStack {
-                            Text("逐条答疑").font(.system(size: 14, weight: .semibold))
-                            Spacer()
-                            Button("记疑惑") { openDoubtEditor() }.font(.system(size: 12, weight: .medium))
-                        }
-                        if currentAnswer?.doubts.isEmpty != false {
-                            Text("此题尚未记录疑惑。可以在对照答案后逐条补充。")
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
-                        }
-                        if currentAnswer?.reviewState == .pendingVerification {
-                            Label("已标记为待核验", systemImage: "checkmark.circle")
-                                .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.warning)
-                        } else {
-                            Button("标记为待核验") { markPendingVerification() }
-                                .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.accent)
-                        }
-                        ForEach(Array((currentAnswer?.doubts ?? []).enumerated()), id: \.element.id) { index, doubt in
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text("疑惑 \(index + 1)").font(.system(size: 12, weight: .semibold)).foregroundStyle(AppTheme.accent)
-                                Text(doubt.body).font(.system(size: 14))
-                                if let materialID = doubt.materialID {
-                                    Text("锚点：\(materials.first(where: { $0.id == materialID })?.title ?? "材料") · 第 \((doubt.pageIndex ?? 0) + 1) 页")
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                } else if let page = doubt.pageIndex {
-                                    Text("锚点：作答要求 · 第 \(page + 1) 页")
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
-                        }
-                    case .score:
-                        scoreUnavailableState
+                        comparisonSection(for: question, answer: answer)
+                    case .history:
+                        historySection
                     }
                 }
-                .padding(15)
+                .padding(12)
             }
-            .background(Color(red: 0.96, green: 0.97, blue: 0.98))
+            .id("\(answer.id)|\(selectedReviewSection.rawValue)")
         }
     }
 
-    private var scoreUnavailableState: some View {
+    private func comparisonSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if currentAnswer?.reviewState == .confirmed, let score = currentAnswer?.confirmedScore {
-                Text("已确认评分").font(.system(size: 14, weight: .semibold))
-                Text("\(score.formatted(.number.precision(.fractionLength(0...2)))) 分")
-                    .font(.system(size: 25, weight: .bold)).foregroundStyle(AppTheme.accent)
-                if let analysis = currentAnswer?.confirmedAnalysis, !analysis.isEmpty { Text(analysis).font(.system(size: 14)) }
-            } else {
-                if currentAnswer?.reviewState == .pendingVerification {
-                    Label("已标记为待核验", systemImage: "checkmark.circle")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.warning)
-                }
-                Label("评分与分析服务尚未接入", systemImage: "info.circle")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(AppTheme.warning)
-                Text("本版本没有申论评分或分析接口。这里不会生成分数、答疑结论或知识点报告。作答和疑惑仍会保存在本机。")
-                    .font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button("发起评分与分析") {}
+            reviewCard("我的作答") {
+                Text(answer.answerText.isEmpty ? "这次补录没有作答原文。" : answer.answerText)
+                    .font(.system(size: 15))
+                    .foregroundStyle(answer.answerText.isEmpty ? Color.secondary : Color.primary)
+                    .textSelection(.enabled)
+            }
+            reviewCard("参考答案") {
+                if isEditingReferenceAnswer {
+                    TextEditor(text: $referenceAnswerDraft)
+                        .font(.system(size: 15))
+                        .frame(minHeight: 160)
+                    HStack {
+                        Button("取消") {
+                            referenceAnswerDraft = question.referenceAnswer
+                            isEditingReferenceAnswer = false
+                        }
+                        Spacer()
+                        Button("保存参考答案") { _ = saveReferenceAnswer() }
+                    }
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .disabled(true)
-                    .frame(height: 40)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minHeight: 44)
+                } else {
+                    Text(question.referenceAnswer.isEmpty ? "尚未录入参考答案。" : question.referenceAnswer)
+                        .font(.system(size: 15))
+                        .foregroundStyle(question.referenceAnswer.isEmpty ? Color.secondary : Color.primary)
+                        .textSelection(.enabled)
+                    Button("修改参考答案") {
+                        referenceAnswerDraft = question.referenceAnswer
+                        isEditingReferenceAnswer = true
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minHeight: 44)
+                }
+                if let original = answer.referenceAnswerAtCompletion,
+                   !original.isEmpty, original != question.referenceAnswer {
+                    DisclosureGroup("作答时的参考答案") {
+                        Text(original).font(.system(size: 14)).textSelection(.enabled)
+                    }
+                    .font(.system(size: 13))
+                }
             }
         }
-        .padding(15)
+    }
+
+    private func localReviewSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            reviewCard("疑惑") {
+                Button(action: openDoubtEditor) {
+                    Label("记疑惑", systemImage: "plus").frame(minHeight: 44)
+                }
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTheme.accent)
+                if reviewDraft.doubts.isEmpty {
+                    Text("还没有记录疑惑").font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                if answer.reviewState == .pendingVerification {
+                    Text("此题曾标记为待核验").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                ForEach($reviewDraft.doubts) { $doubt in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(doubt.body).font(.system(size: 14))
+                        if let anchor = doubtAnchor(doubt) {
+                            Button(anchor) { goToDoubtAnchor(doubt) }
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(minHeight: 30)
+                        }
+                        TextField("记录这条疑惑的结论", text: Binding(
+                            get: { doubt.conclusion ?? "" },
+                            set: { doubt.conclusion = $0 }
+                        ), axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 14))
+                        .lineLimit(1...5)
+                        Toggle("已核验", isOn: Binding(
+                            get: { doubt.isVerified == true },
+                            set: { doubt.isVerified = $0 }
+                        ))
+                        .font(.system(size: 12))
+                    }
+                    .padding(10)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            reviewCard("本次得分") {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        scoreField(for: question, answer: answer)
+                        scoreSourcePicker
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        scoreField(for: question, answer: answer)
+                        scoreSourcePicker
+                    }
+                }
+                if let analysis = answer.confirmedAnalysis, !analysis.isEmpty {
+                    Text(analysis).font(.system(size: 13)).textSelection(.enabled)
+                }
+                if answer.reviewState == .needsReview {
+                    Button("确认本次评分") { saveReview(confirmExistingScore: true) }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .frame(minHeight: 44)
+                }
+            }
+            reviewCard("复盘心得") {
+                TextField("这次漏了什么？下次准备怎么改？", text: $reviewDraft.note, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 15))
+                    .lineLimit(3...10)
+                    .accessibilityLabel("复盘心得")
+            }
+            HStack {
+                if reviewSaved && answer.savedReview == reviewDraft {
+                    Label("已保存", systemImage: "checkmark.circle")
+                        .font(.system(size: 12)).foregroundStyle(AppTheme.success)
+                }
+                Spacer()
+                Button("保存本次复盘") { saveReview() }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .background(AppTheme.accent, in: Capsule())
+            }
+        }
+    }
+
+    private func scoreField(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
+        HStack(spacing: 6) {
+            TextField("未评分", text: $reviewDraft.scoreText)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(.decimalPad)
+                .frame(width: 90)
+                .accessibilityLabel("本次得分")
+            if let maximum = answer.fullScore(for: question) {
+                Text("/ \(maximum.formatted(.number.precision(.fractionLength(0...2)))) 分")
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            } else {
+                Text("分").foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 14))
+    }
+
+    private var scoreSourcePicker: some View {
+        Picker("评分来源", selection: $reviewDraft.scoreSource) {
+            if reviewDraft.scoreSource == nil {
+                Text("未注明来源").tag(nil as ShenlunWorkspaceScoreSource?)
+            }
+            ForEach(ShenlunWorkspaceScoreSource.allCases, id: \.self) { source in
+                Text(source.rawValue).tag(Optional(source))
+            }
+        }
+        .pickerStyle(.menu)
+        .font(.system(size: 13))
+        .fixedSize()
+    }
+
+    private var historySection: some View {
+        reviewCard("作答历史") {
+            HStack {
+                if showsHistoryFromAnswer {
+                    Button("返回答题纸") { showsHistoryFromAnswer = false }
+                }
+                Spacer()
+                Button {
+                    guard persistWorkInProgress() else { return }
+                    backfillDate = .now
+                    backfillAnswer = ""
+                    showsBackfill = true
+                } label: {
+                    Label("补录一次", systemImage: "plus")
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(AppTheme.accent)
+            .frame(minHeight: 44)
+
+            let records = currentHistory?.completed ?? []
+            if records.isEmpty {
+                Text("还没有完成的作答").font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            ForEach(records) { answer in
+                Button { openReview(answer.id) } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("第 \(answer.attemptNumber ?? 1) 次作答")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            if let date = answer.completedAt {
+                                Text(date.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        if let currentQuestion {
+                            Text(scoreDescription(answer, question: currentQuestion))
+                                .font(.system(size: 12))
+                                .foregroundStyle(AppTheme.accent)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func scoreDescription(_ answer: ShenlunWorkspaceAnswer, question: ShenlunWorkspaceQuestion) -> String {
+        guard let score = answer.confirmedScore else { return "未评分" }
+        let number = score.formatted(.number.precision(.fractionLength(0...2)))
+        if let fullScore = answer.fullScore(for: question) {
+            return "\(number) / \(fullScore.formatted(.number.precision(.fractionLength(0...2)))) 分"
+        }
+        return "\(number) 分"
+    }
+
+    private func reviewCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 15, weight: .semibold)).accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var backfillSheet: some View {
+        NavigationStack {
+            Form {
+                DatePicker("作答日期", selection: $backfillDate, in: ...Date.now, displayedComponents: .date)
+                Section("作答原文（可选）") {
+                    ShenlunCommittedTextEditor(text: $backfillAnswer, accessibilityIdentifier: "shenlun-backfill-answer")
+                        .frame(minHeight: 140)
+                }
+                sheetError
+            }
+            .navigationTitle("补录作答记录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        errorMessage = nil
+                        showsBackfill = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("保存记录", action: saveBackfill) }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private var sheetError: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(.system(size: 13))
+                .foregroundStyle(AppTheme.danger)
+        }
     }
 
     private var doubtEditorSheet: some View {
@@ -839,12 +1167,18 @@ struct ShenlunPracticeDetailView: View {
                     Text("锚点：作答要求 · 第 \(pageIndex + 1) 页")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
+                sheetError
             }
             .padding(16)
             .navigationTitle("记疑惑")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { isShowingDoubtEditor = false } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        errorMessage = nil
+                        isShowingDoubtEditor = false
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { saveDoubt() }.disabled(doubtText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
         }
@@ -929,7 +1263,7 @@ struct ShenlunPracticeDetailView: View {
         do {
             questions = try ShenlunWorkspaceRepository.questions(practiceID: practice.id, in: modelContext)
             materials = try ShenlunWorkspaceRepository.materials(practiceID: practice.id, in: modelContext)
-            answers = try ShenlunWorkspaceRepository.answers(practiceID: practice.id, in: modelContext)
+            histories = try ShenlunWorkspaceRepository.attemptHistories(practiceID: practice.id, in: modelContext)
             if let data = UserDefaults.standard.data(forKey: readingLocationDefaultsKey),
                let saved = try? JSONDecoder().decode([String: ShenlunQuestionReadingLocation].self, from: data) {
                 readingLocations = saved
@@ -942,11 +1276,11 @@ struct ShenlunPracticeDetailView: View {
                 pageIndex = location.pageIndex
             }
             if let questionID {
-                answerText = answers[questionID]?.answerText ?? ""
-                referenceAnswerDraft = questions.first(where: { $0.id == questionID })?.referenceAnswer ?? ""
+                loadQuestionWork(questionID)
             }
             refreshTextPaperLayout(for: materials.first(where: { $0.id == selectedMaterialID }))
             didLoad = true
+            if questionID != nil { workFocusRequest = UUID() }
         } catch {
             errorMessage = "无法载入练习：\(error.localizedDescription)"
         }
@@ -1079,89 +1413,190 @@ struct ShenlunPracticeDetailView: View {
 
     private func selectQuestion(_ id: String) {
         guard id != questionID else { return }
-        if isEditingReferenceAnswer {
-            guard saveReferenceAnswer() else { return }
-        }
-        if isEditingCompletedAnswer {
-            guard saveRevisedAnswer() else { return }
-        } else {
-            persistAnswerDraft()
-        }
+        finishKeyboardInput()
+        guard persistWorkInProgress() else { return }
+        if isEditingReferenceAnswer, !saveReferenceAnswer() { return }
         let location = readingLocation(for: id)
         let previousQuestionID = questionID
-        let change = {
+        commitDrawingBeforeTransition {
             self.rememberReadingLocation(for: previousQuestionID)
             self.questionID = id
-            self.answerText = self.answers[id]?.answerText ?? ""
-            self.referenceAnswerDraft = self.questions.first(where: { $0.id == id })?.referenceAnswer ?? ""
-            self.answerFocusRequest = nil
-            self.isEditingCompletedAnswer = false
-            self.isEditingReferenceAnswer = false
-            self.selectedReviewSection = .answer
-            self.answerPaperIndex = 0
+            self.loadQuestionWork(id)
             self.selectedMaterialID = location.materialID
             self.pageIndex = location.pageIndex
             self.refreshTextPaperLayout(for: self.materials.first(where: { $0.id == location.materialID }))
             self.rememberReadingLocation(for: id)
         }
-        commitDrawingBeforeTransition(change)
+    }
+
+    private func loadQuestionWork(_ id: String) {
+        referenceAnswerDraft = questions.first { $0.id == id }?.referenceAnswer ?? ""
+        isEditingReferenceAnswer = false
+        answerText = histories[id]?.draft?.answerText ?? ""
+        answerFocusRequest = nil
+        answerPaperIndex = 0
+        previousReviewAttemptID = histories[id]?.completed.first?.id
+        showsHistoryFromAnswer = false
+        if histories[id]?.draft == nil, let latest = histories[id]?.completed.first {
+            displayReview(latest)
+        } else {
+            reviewAttemptID = nil
+            reviewDraft = .init()
+            reviewSaved = false
+            selectedReviewSection = .review
+        }
+    }
+
+    private func displayReview(_ answer: ShenlunWorkspaceAnswer) {
+        answerFocusRequest = nil
+        answerPaperIndex = 0
+        reviewAttemptID = answer.id
+        reviewDraft = answer.reviewDraft ?? answer.savedReview
+        reviewSaved = false
+        showsHistoryFromAnswer = false
+        selectedReviewSection = .review
+    }
+
+    private func openReview(_ id: String) {
+        finishKeyboardInput()
+        guard persistWorkInProgress(), let answer = currentHistory?.completed.first(where: { $0.id == id }) else { return }
+        displayReview(answer)
+        workFocusRequest = UUID()
+    }
+
+    private func returnToPreviousReview() {
+        guard let id = previousReviewAttemptID ?? currentHistory?.completed.first?.id else { return }
+        openReview(id)
+    }
+
+    private func resumeAnswer() {
+        finishKeyboardInput()
+        if isEditingReferenceAnswer, !saveReferenceAnswer() { return }
+        guard persistReviewDraft() else { return }
+        previousReviewAttemptID = reviewAttemptID
+        reviewAttemptID = nil
+        reviewDraft = .init()
+        reviewSaved = false
+        answerText = currentHistory?.draft?.answerText ?? ""
+        answerFocusRequest = nil
+        answerPaperIndex = 0
+        showsHistoryFromAnswer = false
+        workFocusRequest = UUID()
+    }
+
+    private func newAttempt(for questionID: String) -> ShenlunWorkspaceAnswer {
+        var answer = ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
+        answer.attemptID = UUID().uuidString
+        return answer
     }
 
     private func completeAnswer() {
-        guard !answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let questionID else {
-            errorMessage = "空白答案不能完成作答。"
+        guard reviewAttemptID == nil, !showsHistoryFromAnswer, let question = currentQuestion else { return }
+        finishKeyboardInput()
+        guard !answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            beginAnswerEditing()
             return
         }
-        var updated = answers[questionID] ?? ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
-        updated.answerText = answerText
-        updated.isCompleted = true
-        updated.completedAt = .now
-        updated.revision += 1
-        do {
-            try ShenlunWorkspaceRepository.save(updated, in: modelContext)
-            answers[questionID] = updated
-            answerFocusRequest = nil
-            selectedReviewSection = .answer
-            answerPaperIndex = 0
-            onPracticeChanged()
-        } catch {
-            errorMessage = "作答保存失败：\(error.localizedDescription)"
-        }
+        guard persistAnswerDraft(), let existing = currentHistory?.draft else { return }
+        var attempt = existing
+        attempt.complete(on: .now, for: question)
+        guard writeAttempt(attempt, replacing: existing, failure: "作答保存失败"),
+              let saved = currentHistory?.completed.first(where: { $0.id == attempt.id }) else { return }
+        answerText = ""
+        displayReview(saved)
+        workFocusRequest = UUID()
+        onPracticeChanged()
     }
 
-    private func persistAnswerDraft() {
-        guard let questionID else { return }
-        let current = answers[questionID]
-        guard current?.answerText != answerText || current == nil else { return }
-        var updated = current ?? ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
-        updated.answerText = answerText
-        updated.revision += 1
-        do {
-            try ShenlunWorkspaceRepository.save(updated, in: modelContext)
-            answers[questionID] = updated
-            onPracticeChanged()
-        } catch {
-            errorMessage = "草稿保存失败：\(error.localizedDescription)"
-        }
+    private func saveBackfill() {
+        guard showsBackfill, let question = currentQuestion else { return }
+        finishKeyboardInput()
+        var attempt = newAttempt(for: question.id)
+        attempt.answerText = backfillAnswer
+        attempt.complete(on: backfillDate, for: question)
+        guard writeAttempt(attempt, replacing: nil, failure: "补录保存失败"),
+              let saved = currentHistory?.completed.first(where: { $0.id == attempt.id }) else { return }
+        showsBackfill = false
+        errorMessage = nil
+        displayReview(saved)
+        workFocusRequest = UUID()
+        onPracticeChanged()
+    }
+
+    private func finishKeyboardInput() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     @discardableResult
-    private func saveRevisedAnswer() -> Bool {
-        guard let questionID else { return false }
-        var updated = answers[questionID] ?? ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
+    private func persistWorkInProgress() -> Bool {
+        guard didLoad else { return true }
+        return reviewAttemptID == nil ? persistAnswerDraft() : persistReviewDraft()
+    }
+
+    @discardableResult
+    private func persistAnswerDraft() -> Bool {
+        guard didLoad, reviewAttemptID == nil, let questionID else { return true }
+        let existing = currentHistory?.draft
+        guard answerText != (existing?.answerText ?? "") else { return true }
+        var updated = existing ?? newAttempt(for: questionID)
         updated.answerText = answerText
-        updated.isCompleted = true
-        updated.revision += 1
-        if updated.confirmedScore != nil { updated.reviewState = .needsReview }
+        return writeAttempt(updated, replacing: existing, failure: "作答草稿保存失败")
+    }
+
+    @discardableResult
+    private func persistReviewDraft() -> Bool {
+        guard let answer = reviewAnswer else { return true }
+        return persistReviewDraft(reviewDraft, for: answer)
+    }
+
+    private func persistReviewDraft(_ draft: ShenlunWorkspaceReviewDraft, for answer: ShenlunWorkspaceAnswer) -> Bool {
+        let changes = draft == answer.savedReview ? nil : draft
+        guard changes != answer.reviewDraft else { return true }
+        var updated = answer
+        updated.reviewDraft = changes
+        return writeAttempt(updated, replacing: answer, failure: "复盘草稿保存失败")
+    }
+
+    private func saveReview(confirmExistingScore: Bool = false) {
+        guard let answer = reviewAnswer, let question = currentQuestion else { return }
+        finishKeyboardInput()
+        let score: Double?
         do {
-            try ShenlunWorkspaceRepository.save(updated, in: modelContext)
-            answers[questionID] = updated
-            isEditingCompletedAnswer = false
-            onPracticeChanged()
+            score = try reviewDraft.validatedScore(maximum: answer.fullScore(for: question))
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        var updated = answer
+        if updated.questionRevisionAtCompletion == nil {
+            updated.questionRevisionAtCompletion = question.revision
+            updated.fullScoreAtCompletion = question.fullScore
+            updated.referenceAnswerAtCompletion = question.referenceAnswer
+        }
+        updated.confirmedScore = score
+        updated.scoreSource = score == nil ? nil : reviewDraft.scoreSource
+        if let score, confirmExistingScore || answer.reviewState != .needsReview || score != answer.confirmedScore {
+            updated.reviewState = .confirmed
+        } else if score == nil && (answer.reviewState == .confirmed || answer.reviewState == .needsReview) {
+            updated.reviewState = .notReviewed
+        }
+        updated.reviewNote = reviewDraft.note
+        updated.doubts = reviewDraft.doubts
+        updated.reviewDraft = nil
+        guard writeAttempt(updated, replacing: answer, failure: "复盘保存失败") else { return }
+        reviewDraft = updated.savedReview
+        reviewSaved = true
+        onPracticeChanged()
+    }
+
+    private func writeAttempt(_ value: ShenlunWorkspaceAnswer, replacing existing: ShenlunWorkspaceAnswer?, failure: String) -> Bool {
+        do {
+            histories[value.questionID] = try ShenlunWorkspaceRepository.saveAttempt(
+                value, replacingRevision: existing?.revision, in: modelContext
+            )
             return true
         } catch {
-            errorMessage = "作答修改保存失败：\(error.localizedDescription)"
+            errorMessage = "\(failure)：\(error.localizedDescription)"
             return false
         }
     }
@@ -1175,27 +1610,23 @@ struct ShenlunPracticeDetailView: View {
             isEditingReferenceAnswer = false
             return true
         }
+        guard persistReviewDraft() else { return false }
         updatedQuestion.referenceAnswer = referenceAnswerDraft
         updatedQuestion.revision += 1
         var updatedPractice = practice
         updatedPractice.updatedAt = .now
-        var answerUpdate = answers[questionID]
-        if var answer = answerUpdate, answer.confirmedScore != nil {
-            answer.reviewState = .needsReview
-            answer.revision += 1
-            answerUpdate = answer
-        }
         do {
             try ShenlunWorkspaceRepository.savePracticeAndQuestion(
                 updatedPractice,
                 updatedQuestion,
                 createdAt: practice.createdAt,
-                answerUpdate: answerUpdate,
+                markScoresForReview: true,
                 in: modelContext
             )
             questions[index] = updatedQuestion
-            if let answerUpdate { answers[questionID] = answerUpdate }
             isEditingReferenceAnswer = false
+            histories = try ShenlunWorkspaceRepository.attemptHistories(practiceID: practice.id, in: modelContext)
+            reviewSaved = false
             onPracticeChanged()
             return true
         } catch {
@@ -1213,36 +1644,60 @@ struct ShenlunPracticeDetailView: View {
         guard let questionID else { return }
         let text = doubtText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        var updated = answers[questionID] ?? ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
-        updated.doubts.append(ShenlunWorkspaceDoubt(
+        var doubt = ShenlunWorkspaceDoubt(
             questionID: questionID,
             body: text,
             materialID: selectedMaterialID,
             pageIndex: currentMaterial?.kind == .pdf ? sourcePageIndex : pageIndex
-        ))
-        updated.revision += 1
-        do {
-            try ShenlunWorkspaceRepository.save(updated, in: modelContext)
-            answers[questionID] = updated
-            doubtText = ""
-            isShowingDoubtEditor = false
-            onPracticeChanged()
-        } catch {
-            errorMessage = "疑惑保存失败：\(error.localizedDescription)"
+        )
+        doubt.materialTitle = currentMaterial?.title
+        doubt.materialVersionID = currentMaterial?.versionID
+        if let answer = reviewAnswer {
+            var draft = reviewDraft
+            draft.doubts.append(doubt)
+            guard persistReviewDraft(draft, for: answer) else { return }
+            reviewDraft = draft
+        } else {
+            let existing = currentHistory?.draft
+            var updated = existing ?? newAttempt(for: questionID)
+            updated.answerText = answerText
+            updated.doubts.append(doubt)
+            guard writeAttempt(updated, replacing: existing, failure: "疑惑保存失败") else { return }
         }
+        doubtText = ""
+        isShowingDoubtEditor = false
+        errorMessage = nil
     }
 
-    private func markPendingVerification() {
-        guard let questionID else { return }
-        var updated = answers[questionID] ?? ShenlunWorkspaceAnswer(practiceID: practice.id, questionID: questionID)
-        updated.reviewState = .pendingVerification
-        updated.revision += 1
-        do {
-            try ShenlunWorkspaceRepository.save(updated, in: modelContext)
-            answers[questionID] = updated
-            onPracticeChanged()
-        } catch {
-            errorMessage = "状态保存失败：\(error.localizedDescription)"
+    private func goToDoubtAnchor(_ doubt: ShenlunWorkspaceDoubt) {
+        guard let page = doubt.pageIndex else { return }
+        let material = materials.first { $0.id == doubt.materialID }
+        if doubt.materialID != nil && material == nil {
+            errorMessage = "这条疑惑引用的材料已移除。"
+            return
+        }
+        let versionChanged = doubt.materialVersionID != nil && doubt.materialVersionID != material?.versionID
+        let targetPage: Int
+        if versionChanged {
+            targetPage = 0
+        } else if let material, material.kind == .pdf, !material.selectedPDFPageIndices.isEmpty {
+            guard let index = material.selectedPDFPageIndices.firstIndex(of: page) else {
+                errorMessage = "这条疑惑引用的页已不在当前材料中。"
+                return
+            }
+            targetPage = index
+        } else {
+            targetPage = page
+        }
+        commitDrawingBeforeTransition {
+            self.selectedMaterialID = material?.id
+            self.refreshTextPaperLayout(for: material)
+            self.pageIndex = min(max(0, targetPage), self.leftPageCount - 1)
+            self.rememberReadingLocation(for: self.questionID)
+            self.readingFocusRequest = UUID()
+            if versionChanged {
+                self.errorMessage = "原材料版本已更新，已打开当前材料的第一页。"
+            }
         }
     }
 
@@ -1453,6 +1908,11 @@ private struct ShenlunCommittedTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             guard textView.markedTextRange == nil else { return }
             parent.text = textView.text ?? ""
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            guard textView.markedTextRange == nil, let text = textView.text, text != parent.text else { return }
+            parent.text = text
         }
     }
 }

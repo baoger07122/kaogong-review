@@ -39,6 +39,7 @@ enum LegacyBackupExporter {
         ("shenlun_workspace_materials", "shenlunWorkspaceMaterials"),
         ("shenlun_workspace_assets", "shenlunWorkspaceAssets"),
         ("shenlun_workspace_answers", "shenlunWorkspaceAnswers"),
+        ("shenlun_workspace_attempt_history", "shenlunWorkspaceAttemptHistory"),
         ("shenlun_workspace_drawings", "shenlunWorkspaceDrawings")
     ]
 
@@ -104,8 +105,11 @@ enum LegacyBackupExporter {
     }
 
     private static func payloadObject(_ record: StoredRecord) throws -> [String: Any] {
-        guard let object = try JSONSerialization.jsonObject(with: record.payload) as? [String: Any] else {
+        guard var object = try JSONSerialization.jsonObject(with: record.payload) as? [String: Any] else {
             throw CocoaError(.fileReadCorruptFile)
+        }
+        if record.collection == "shenlun_workspace_answers" || record.collection == "shenlun_workspace_attempt_history" {
+            object["id"] = record.recordID
         }
         return object
     }

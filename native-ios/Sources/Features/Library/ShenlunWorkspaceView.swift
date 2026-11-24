@@ -4,7 +4,7 @@ import SwiftUI
 private struct ShenlunSingleQuestionListRow: Identifiable {
     var practice: ShenlunWorkspacePractice
     var question: ShenlunWorkspaceQuestion
-    var answer: ShenlunWorkspaceAnswer?
+    var history: ShenlunWorkspaceAttemptHistory?
     var id: String { question.id }
 }
 
@@ -15,7 +15,7 @@ struct ShenlunWorkspaceView: View {
     @State private var singleTypeFilter: ShenlunWorkspaceQuestionType?
     @State private var practices: [ShenlunWorkspacePractice] = []
     @State private var questionsByPractice: [String: [ShenlunWorkspaceQuestion]] = [:]
-    @State private var answersByPractice: [String: [String: ShenlunWorkspaceAnswer]] = [:]
+    @State private var historiesByPractice: [String: [String: ShenlunWorkspaceAttemptHistory]] = [:]
     @State private var legacyRecords: [StoredRecord] = []
     @State private var loadError: String?
 
@@ -25,25 +25,15 @@ struct ShenlunWorkspaceView: View {
 
     private var singleRows: [ShenlunSingleQuestionListRow] {
         var rows: [ShenlunSingleQuestionListRow] = []
-        for practice in practices {
-            guard practice.kind == .single else { continue }
-            let questions: [ShenlunWorkspaceQuestion] = questionsByPractice[practice.id] ?? []
+        for practice in practices where practice.kind == .single {
+            let questions = questionsByPractice[practice.id] ?? []
+            let histories = historiesByPractice[practice.id] ?? [:]
             for question in questions {
-                let answer: ShenlunWorkspaceAnswer? = answersByPractice[practice.id]?[question.id]
-                rows.append(ShenlunSingleQuestionListRow(practice: practice, question: question, answer: answer))
+                if let singleTypeFilter, question.type != singleTypeFilter { continue }
+                rows.append(ShenlunSingleQuestionListRow(practice: practice, question: question, history: histories[question.id]))
             }
         }
-
-        if let selectedType = singleTypeFilter {
-            rows = rows.filter { row in
-                row.question.type == selectedType
-            }
-        }
-
-        rows.sort { left, right in
-            left.practice.updatedAt > right.practice.updatedAt
-        }
-        return rows
+        return rows.sorted { $0.practice.updatedAt > $1.practice.updatedAt }
     }
 
     var body: some View {
@@ -73,48 +63,35 @@ struct ShenlunWorkspaceView: View {
     }
 
     private func sidebar(windowWidth: CGFloat) -> some View {
-        let horizontal = windowWidth >= 760
-        return VStack(spacing: 6) {
-            ForEach(ShenlunWorkspaceKind.allCases) { item in
-                let selected = item == mode
-                let layout = horizontal ? AnyLayout(HStackLayout(spacing: 9)) : AnyLayout(VStackLayout(spacing: 5))
-                Button {
-                    mode = item
-                } label: {
-                    layout {
-                        Image(systemName: item == .single ? "square.and.pencil" : "doc.on.doc")
-                            .font(.system(size: 23, weight: .medium))
-                            .foregroundStyle(selected ? AppTheme.accent : Color.secondary)
-                            .accessibilityHidden(true)
-                        Text(item.title)
-                            .font(.system(size: windowWidth <= 440 ? 12 : 13, weight: selected ? .semibold : .medium))
-                            .lineLimit(1)
+        let compact = windowWidth < 760
+        return ScrollView {
+            VStack(spacing: 4) {
+                if compact { Color.clear.frame(height: 8) }
+                ForEach(ShenlunWorkspaceKind.allCases) { item in
+                    let selected = item == mode
+                    Button {
+                        mode = item
+                    } label: {
+                        LibrarySidebarRowLabel(
+                            compact: compact,
+                            title: item.title,
+                            systemImage: item == .single ? "square.and.pencil" : "doc.on.doc",
+                            color: item == .single ? AppTheme.accent : .teal,
+                            count: practices.lazy.filter { $0.kind == item }.count,
+                            selected: selected
+                        )
                     }
-                    .padding(.horizontal, horizontal ? 12 : 2)
-                    .frame(maxWidth: .infinity, alignment: horizontal ? .leading : .center)
-                    .frame(minHeight: horizontal ? 54 : 68)
-                    .foregroundStyle(selected ? AppTheme.accent : Color.primary)
-                    .background(selected ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(selected ? AppTheme.accent.opacity(0.16) : Color.clear, lineWidth: 1)
-                    }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("shenlun-entry-\(item.rawValue)")
                 }
-                .buttonStyle(NativePressButtonStyle())
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("shenlun-entry-\(item.rawValue)")
             }
+            .padding(.horizontal, 7)
+            .padding(.top, compact ? 0 : 16)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, windowWidth <= 440 ? 4 : 7)
-        .padding(.top, 14)
         .frame(width: sidebarWidth(for: windowWidth))
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Color(uiColor: .separator).opacity(0.35)).frame(width: 1)
-                .allowsHitTesting(false)
-        }
+        .background(AppTheme.secondaryBackground.opacity(0.72))
     }
 
     private func sidebarWidth(for width: CGFloat) -> CGFloat {
@@ -129,15 +106,15 @@ struct ShenlunWorkspaceView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("申论")
-                    .font(.system(size: narrow ? 22 : 25, weight: .semibold))
-                    .frame(minHeight: 60, alignment: .leading)
+                    .font(AppTheme.pageTitleFont)
+                    .frame(minHeight: 44, alignment: .leading)
                     .accessibilityAddTraits(.isHeader)
 
                 if mode == .single {
                     NativeTagFlow(spacing: 7) {
-                        filterChip("全部", type: nil, narrow: narrow)
+                        filterChip("全部", type: nil)
                         ForEach(ShenlunWorkspaceQuestionType.allCases) { type in
-                            filterChip(type.title, type: type, narrow: narrow)
+                            filterChip(type.title, type: type)
                         }
                     }
                     .accessibilityIdentifier("shenlun-single-filters")
@@ -160,20 +137,17 @@ struct ShenlunWorkspaceView: View {
         }
     }
 
-    private func filterChip(_ title: String, type: ShenlunWorkspaceQuestionType?, narrow: Bool) -> some View {
+    private func filterChip(_ title: String, type: ShenlunWorkspaceQuestionType?) -> some View {
         let selected = singleTypeFilter == type
         return Button {
             singleTypeFilter = type
         } label: {
             Text(title)
-                .font(.system(size: narrow ? 12 : 13, weight: .medium))
+                .font(AppTheme.auxiliaryFont.weight(.semibold))
                 .foregroundStyle(selected ? AppTheme.accent : Color.primary)
-                .padding(.horizontal, narrow ? 9 : 14)
-                .frame(minHeight: 36)
-                .background(selected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.05), in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(selected ? AppTheme.accent.opacity(0.16) : Color.clear, lineWidth: 1)
-                }
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(selected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
@@ -193,7 +167,7 @@ struct ShenlunWorkspaceView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 13, alignment: .top), count: twoColumns ? 2 : 1), spacing: 13) {
                 ForEach(rows) { row in
                     NavigationLink(value: ShenlunWorkspaceRoute.practice(id: row.practice.id, selectedQuestionID: row.question.id)) {
-                        ShenlunSingleQuestionRow(question: row.question, answer: row.answer, minimumHeight: twoColumns ? 129 : 112)
+                        ShenlunSingleQuestionRow(question: row.question, history: row.history, minimumHeight: twoColumns ? 129 : 112)
                     }
                     .buttonStyle(NativePressButtonStyle())
                 }
@@ -213,7 +187,7 @@ struct ShenlunWorkspaceView: View {
                         ShenlunPaperSummaryRow(
                             practice: practice,
                             questions: questionsByPractice[practice.id] ?? [],
-                            answers: answersByPractice[practice.id] ?? [:],
+                            histories: historiesByPractice[practice.id] ?? [:],
                             narrow: narrow
                         )
                     }
@@ -326,14 +300,17 @@ struct ShenlunWorkspaceView: View {
         do {
             let loaded = try ShenlunWorkspaceRepository.practices(in: modelContext)
             var questionMap: [String: [ShenlunWorkspaceQuestion]] = [:]
-            var answerMap: [String: [String: ShenlunWorkspaceAnswer]] = [:]
             for practice in loaded {
                 questionMap[practice.id] = try ShenlunWorkspaceRepository.questions(practiceID: practice.id, in: modelContext)
-                answerMap[practice.id] = try ShenlunWorkspaceRepository.answers(practiceID: practice.id, in: modelContext)
+            }
+            let histories = try ShenlunWorkspaceRepository.attemptHistories(in: modelContext)
+            var historyMap: [String: [String: ShenlunWorkspaceAttemptHistory]] = [:]
+            for history in histories.values {
+                historyMap[history.practiceID, default: [:]][history.questionID] = history
             }
             practices = loaded
             questionsByPractice = questionMap
-            answersByPractice = answerMap
+            historiesByPractice = historyMap
             legacyRecords = try modelContext.fetch(FetchDescriptor<StoredRecord>(predicate: #Predicate { $0.collection == "errors" }))
                 .filter(\.isShenlunRecord)
                 .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
@@ -356,8 +333,19 @@ private extension View {
 
 private struct ShenlunSingleQuestionRow: View {
     let question: ShenlunWorkspaceQuestion
-    let answer: ShenlunWorkspaceAnswer?
+    let history: ShenlunWorkspaceAttemptHistory?
     let minimumHeight: CGFloat
+
+    private var completionCount: Int { history?.completed.count ?? 0 }
+
+    private var scoreDetails: String? {
+        guard let answer = history?.latestScored, let score = answer.confirmedScore else { return nil }
+        let number = score.formatted(.number.precision(.fractionLength(0...2)))
+        let result = answer.fullScore(for: question)
+            .map { "\(number) / \($0.formatted(.number.precision(.fractionLength(0...2)))) 分" } ?? "\(number) 分"
+        guard let date = answer.completedAt else { return result }
+        return "\(result) · \(date.formatted(date: .abbreviated, time: .omitted))"
+    }
 
     private var sourceDetails: String {
         [question.source, question.originalNumber.isEmpty ? "" : "原题号 \(question.originalNumber)"]
@@ -374,9 +362,9 @@ private struct ShenlunSingleQuestionRow: View {
                     .padding(.vertical, 2)
                     .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
                 Spacer(minLength: 4)
-                Text(answer?.isCompleted == true ? "已作答" : "未作答")
+                Text(completionCount > 0 ? "已完成 \(completionCount) 次" : "未作答")
                     .font(.system(size: 12))
-                    .foregroundStyle(answer?.isCompleted == true ? AppTheme.success : .secondary)
+                    .foregroundStyle(completionCount > 0 ? AppTheme.success : .secondary)
             }
             .lineLimit(1)
             Text(question.title.isEmpty ? "未命名题目" : question.title)
@@ -387,6 +375,11 @@ private struct ShenlunSingleQuestionRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+            }
+            if let scoreDetails {
+                Text(scoreDetails)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
             }
         }
         .foregroundStyle(Color.primary)
@@ -401,11 +394,11 @@ private struct ShenlunSingleQuestionRow: View {
 private struct ShenlunPaperSummaryRow: View {
     let practice: ShenlunWorkspacePractice
     let questions: [ShenlunWorkspaceQuestion]
-    let answers: [String: ShenlunWorkspaceAnswer]
+    let histories: [String: ShenlunWorkspaceAttemptHistory]
     let narrow: Bool
 
-    private var completedCount: Int { questions.filter { answers[$0.id]?.isCompleted == true }.count }
-    private var scoreCount: Int { questions.filter { answers[$0.id]?.reviewState == .confirmed && answers[$0.id]?.confirmedScore != nil }.count }
+    private var completedCount: Int { questions.filter { histories[$0.id]?.completed.isEmpty == false }.count }
+    private var scoreCount: Int { questions.filter { histories[$0.id]?.latestScored != nil }.count }
 
     var body: some View {
         HStack(spacing: narrow ? 10 : 13) {

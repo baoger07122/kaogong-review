@@ -7,6 +7,7 @@ enum ShenlunWorkspaceRepository {
     static let materialCollection = "shenlun_workspace_materials"
     static let assetCollection = "shenlun_workspace_assets"
     static let answerCollection = "shenlun_workspace_answers"
+    static let attemptCollection = "shenlun_workspace_attempt_history"
     static let drawingCollection = "shenlun_workspace_drawings"
 
     private struct PendingPayload {
@@ -50,14 +51,30 @@ enum ShenlunWorkspaceRepository {
         try value(ShenlunWorkspaceAsset.self, id: id, collection: assetCollection, in: context)
     }
 
-    static func answers(practiceID: String, in context: ModelContext) throws -> [String: ShenlunWorkspaceAnswer] {
-        Dictionary(uniqueKeysWithValues: try values(ShenlunWorkspaceAnswer.self, collection: answerCollection, in: context)
-            .filter { $0.practiceID == practiceID }
-            .map { ($0.questionID, $0) })
+    static func attemptHistories(practiceID: String? = nil, in context: ModelContext) throws -> [String: ShenlunWorkspaceAttemptHistory] {
+        let readContext = ModelContext(context.container)
+        let histories = try values(ShenlunWorkspaceAttemptHistory.self, collection: attemptCollection, in: readContext)
+        var result: [String: ShenlunWorkspaceAttemptHistory] = [:]
+        for history in histories where practiceID == nil || history.practiceID == practiceID {
+            result[history.questionID] = history
+        }
+        for answer in try values(ShenlunWorkspaceAnswer.self, collection: answerCollection, in: readContext)
+            where (practiceID == nil || answer.practiceID == practiceID) && result[answer.questionID] == nil {
+            result[answer.questionID] = .init(practiceID: answer.practiceID, questionID: answer.questionID, legacy: answer)
+        }
+        return result
     }
 
-    static func answer(questionID: String, in context: ModelContext) throws -> ShenlunWorkspaceAnswer? {
-        try value(ShenlunWorkspaceAnswer.self, id: questionID, collection: answerCollection, in: context)
+    private static func attemptHistory(practiceID: String, questionID: String, in context: ModelContext) throws -> ShenlunWorkspaceAttemptHistory {
+        let collection = attemptCollection
+        let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
+            $0.collection == collection && $0.recordID == questionID
+        })
+        if let record = try context.fetch(descriptor).first {
+            return try decode(ShenlunWorkspaceAttemptHistory.self, from: record.payload)
+        }
+        let legacy = try value(ShenlunWorkspaceAnswer.self, id: questionID, collection: answerCollection, in: context)
+        return .init(practiceID: practiceID, questionID: questionID, legacy: legacy)
     }
 
     static func drawing(id: String, in context: ModelContext) throws -> ShenlunWorkspaceDrawing? {
@@ -116,13 +133,17 @@ enum ShenlunWorkspaceRepository {
 
     static func saveNewPractice(
         _ practice: ShenlunWorkspacePractice,
-        firstQuestion: ShenlunWorkspaceQuestion,
+        questions: [ShenlunWorkspaceQuestion],
+        materials: [ShenlunWorkspaceMaterial],
+        assets: [ShenlunWorkspaceAsset],
         in context: ModelContext
     ) throws {
-        try save([
-            try payload(practice, id: practice.id, collection: practiceCollection, createdAt: practice.createdAt, updatedAt: practice.updatedAt),
-            try payload(firstQuestion, id: firstQuestion.id, collection: questionCollection, createdAt: practice.createdAt, updatedAt: practice.updatedAt)
-        ], in: context)
+        let payloads = try practicePayloads(
+            practice, questions: questions, materials: materials, assets: assets, createdAt: practice.createdAt
+        )
+        let writeContext = ModelContext(context.container)
+        writeContext.autosaveEnabled = false
+        try writeContext.transaction { try upsert(payloads, in: writeContext) }
     }
 
     static func savePracticeAndQuestion(
@@ -131,19 +152,25 @@ enum ShenlunWorkspaceRepository {
         createdAt: Date,
         materials: [ShenlunWorkspaceMaterial] = [],
         assets: [ShenlunWorkspaceAsset] = [],
-        answerUpdate: ShenlunWorkspaceAnswer? = nil,
+        markScoresForReview: Bool = false,
         deletingMaterialIDs: [String] = [],
         deletingAssetIDs: [String] = [],
         in context: ModelContext
     ) throws {
-        var payloads = try [
-            try payload(practice, id: practice.id, collection: practiceCollection, createdAt: createdAt, updatedAt: practice.updatedAt),
-            try payload(question, id: question.id, collection: questionCollection, createdAt: createdAt, updatedAt: practice.updatedAt)
-        ]
-        payloads += try materials.map { try payload($0, id: $0.id, collection: materialCollection, createdAt: createdAt, updatedAt: practice.updatedAt) }
-        payloads += try assets.map { try payload($0, id: $0.id, collection: assetCollection, createdAt: createdAt, updatedAt: practice.updatedAt) }
-        if let answerUpdate {
-            payloads.append(try payload(answerUpdate, id: answerUpdate.questionID, collection: answerCollection, createdAt: createdAt, updatedAt: practice.updatedAt))
+        var payloads = try practicePayloads(
+            practice, questions: [question], materials: materials, assets: assets, createdAt: createdAt
+        )
+        if markScoresForReview {
+            let readContext = ModelContext(context.container)
+            var history = try attemptHistory(practiceID: practice.id, questionID: question.id, in: readContext)
+            let scored = history.attempts.indices.filter { history.attempts[$0].confirmedScore != nil }
+            if !scored.isEmpty {
+                for index in scored {
+                    history.attempts[index].reviewState = .needsReview
+                    history.attempts[index].revision += 1
+                }
+                payloads.append(try payload(history, id: question.id, collection: attemptCollection, updatedAt: practice.updatedAt))
+            }
         }
         let removedMaterials = try records(collection: materialCollection, in: context)
             .filter { deletingMaterialIDs.contains($0.recordID) }
@@ -162,6 +189,23 @@ enum ShenlunWorkspaceRepository {
         try context.save()
     }
 
+    private static func practicePayloads(
+        _ practice: ShenlunWorkspacePractice,
+        questions: [ShenlunWorkspaceQuestion],
+        materials: [ShenlunWorkspaceMaterial],
+        assets: [ShenlunWorkspaceAsset],
+        createdAt: Date
+    ) throws -> [PendingPayload] {
+        func entry<Value: Encodable>(_ value: Value, id: String, collection: String) throws -> PendingPayload {
+            try payload(value, id: id, collection: collection, createdAt: createdAt, updatedAt: practice.updatedAt)
+        }
+        var payloads = [try entry(practice, id: practice.id, collection: practiceCollection)]
+        payloads += try questions.map { try entry($0, id: $0.id, collection: questionCollection) }
+        payloads += try materials.map { try entry($0, id: $0.id, collection: materialCollection) }
+        payloads += try assets.map { try entry($0, id: $0.id, collection: assetCollection) }
+        return payloads
+    }
+
     static func save(_ value: ShenlunWorkspacePractice, in context: ModelContext) throws {
         try write(value, id: value.id, collection: practiceCollection, createdAt: value.createdAt, updatedAt: value.updatedAt, in: context)
     }
@@ -178,8 +222,40 @@ enum ShenlunWorkspaceRepository {
         try write(value, id: value.id, collection: assetCollection, updatedAt: .now, in: context)
     }
 
-    static func save(_ value: ShenlunWorkspaceAnswer, in context: ModelContext) throws {
-        try write(value, id: value.questionID, collection: answerCollection, updatedAt: .now, in: context)
+    static func saveAttempt(
+        _ value: ShenlunWorkspaceAnswer,
+        replacingRevision: Int?,
+        in context: ModelContext
+    ) throws -> ShenlunWorkspaceAttemptHistory {
+        let writeContext = ModelContext(context.container)
+        writeContext.autosaveEnabled = false
+        var history = try attemptHistory(practiceID: value.practiceID, questionID: value.questionID, in: writeContext)
+        let index = history.attempts.firstIndex { $0.id == value.id }
+        guard index.map({ history.attempts[$0].revision }) == replacingRevision,
+              value.isCompleted || history.draft == nil || history.draft?.id == value.id else {
+            throw AttemptWriteError.changed
+        }
+        var updated = value
+        updated.revision = (replacingRevision ?? 0) + 1
+        if let index {
+            guard !history.attempts[index].isCompleted || updated.isCompleted else { throw AttemptWriteError.changed }
+            if updated.isCompleted && !history.attempts[index].isCompleted {
+                updated.attemptNumber = history.nextNumber
+            }
+            history.attempts[index] = updated
+        } else {
+            if updated.isCompleted { updated.attemptNumber = history.nextNumber }
+            history.attempts.append(updated)
+        }
+        let entry = try payload(history, id: value.questionID, collection: attemptCollection, updatedAt: .now)
+        try writeContext.transaction { try upsert([entry], in: writeContext) }
+        return history
+    }
+
+    private enum AttemptWriteError: LocalizedError {
+        case changed
+
+        var errorDescription: String? { "这次作答已在其他窗口更新。请重新打开题目后再保存。" }
     }
 
     static func save(_ value: ShenlunWorkspaceDrawing, in context: ModelContext) throws {
@@ -194,7 +270,7 @@ enum ShenlunWorkspaceRepository {
             if record.collection == practiceCollection && record.recordID == practice.id { return true }
             if record.collection == questionCollection && questionIDs.contains(record.recordID) { return true }
             if record.collection == materialCollection && materialIDs.contains(record.recordID) { return true }
-            if record.collection == answerCollection {
+            if record.collection == answerCollection || record.collection == attemptCollection {
                 return (try? decode(ShenlunWorkspaceAnswer.self, from: record.payload).practiceID) == practice.id
             }
             if record.collection == assetCollection {
@@ -300,7 +376,13 @@ enum ShenlunWorkspaceRepository {
         for payload in payloads {
             let compoundID = "\(payload.collection):\(payload.id)"
             if let existing = existingByID[compoundID] {
-                existing.replacePayload(try merging(payload.payload, over: existing.payload))
+                let data: Data
+                if payload.collection == attemptCollection {
+                    data = payload.payload
+                } else {
+                    data = try merging(payload.payload, over: existing.payload)
+                }
+                existing.replacePayload(data)
                 existing.updatedAt = payload.updatedAt
             } else {
                 context.insert(StoredRecord(

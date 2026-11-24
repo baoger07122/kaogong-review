@@ -7,6 +7,7 @@ struct ShenlunAdaptiveTextEditor: View {
     let growsWithContent: Bool
     let fontSize: CGFloat?
     let accessibilityIdentifier: String?
+    let onFormattedMaterialPaste: ((ShenlunMaterialPasteEdit) -> Void)?
     @State private var measuredHeight: CGFloat
 
     init(
@@ -14,13 +15,15 @@ struct ShenlunAdaptiveTextEditor: View {
         minimumHeight: CGFloat,
         growsWithContent: Bool,
         fontSize: CGFloat? = nil,
-        accessibilityIdentifier: String? = nil
+        accessibilityIdentifier: String? = nil,
+        onFormattedMaterialPaste: ((ShenlunMaterialPasteEdit) -> Void)? = nil
     ) {
         _text = text
         self.minimumHeight = minimumHeight
         self.growsWithContent = growsWithContent
         self.fontSize = fontSize
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.onFormattedMaterialPaste = onFormattedMaterialPaste
         _measuredHeight = State(initialValue: minimumHeight)
     }
 
@@ -34,7 +37,8 @@ struct ShenlunAdaptiveTextEditor: View {
                 growsWithContent: growsWithContent,
                 fontSize: fontSize,
                 availableWidth: width,
-                accessibilityIdentifier: accessibilityIdentifier
+                accessibilityIdentifier: accessibilityIdentifier,
+                onFormattedMaterialPaste: onFormattedMaterialPaste
             )
             .modifier(NativeDirectionalTextFieldNavigation())
             .frame(width: width, alignment: .leading)
@@ -57,6 +61,7 @@ struct ShenlunTextView: UIViewRepresentable {
     let fontSize: CGFloat?
     let availableWidth: CGFloat
     let accessibilityIdentifier: String?
+    let onFormattedMaterialPaste: ((ShenlunMaterialPasteEdit) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -65,6 +70,9 @@ struct ShenlunTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
+        if onFormattedMaterialPaste != nil {
+            view.pasteDelegate = context.coordinator
+        }
         view.font = UIFont.systemFont(ofSize: fontSize ?? AppTheme.inputUIFont.pointSize)
         view.textColor = .label
         view.backgroundColor = .clear
@@ -91,8 +99,13 @@ struct ShenlunTextView: UIViewRepresentable {
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
         view.typingAttributes = Self.typingAttributes(fontSize: fontSize)
-        if view.text != text, !view.isFirstResponder {
+        let appliesMaterialChange = onFormattedMaterialPaste != nil && view.markedTextRange == nil
+        if view.text != text, !view.isFirstResponder || appliesMaterialChange {
+            let previousCaret = view.selectedRange.location
             view.text = text
+            if view.isFirstResponder {
+                view.selectedRange = NSRange(location: min(previousCaret, text.utf16.count), length: 0)
+            }
         }
         view.isScrollEnabled = !growsWithContent
         view.showsVerticalScrollIndicator = !growsWithContent
@@ -127,17 +140,49 @@ struct ShenlunTextView: UIViewRepresentable {
         ]
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UITextPasteDelegate {
         var parent: ShenlunTextView
         private var heightMeasurementRequestID: UInt64 = 0
+        private var applyingPaste = false
 
         init(parent: ShenlunTextView) {
             self.parent = parent
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            guard !applyingPaste else { return }
             parent.text = textView.text
             parent.updateHeight(textView, coordinator: self)
+        }
+
+        func textPasteConfigurationSupporting(
+            _ supporting: any UITextPasteConfigurationSupporting,
+            performPasteOf attributedString: NSAttributedString,
+            to textRange: UITextRange
+        ) -> UITextRange {
+            guard let view = supporting as? UITextView else { return textRange }
+            let startOffset = view.offset(from: view.beginningOfDocument, to: textRange.start)
+            let length = view.offset(from: textRange.start, to: textRange.end)
+            let selection = NSRange(location: startOffset, length: length)
+            let raw = attributedString.string
+            let edit = ShenlunMaterialTextFormatter.formattedPaste(raw, in: view.text ?? "", replacing: selection)
+            let insertion = edit?.insertion ?? raw
+
+            applyingPaste = true
+            view.replace(textRange, withText: insertion)
+            applyingPaste = false
+            if let edit, view.text == edit.formattedText, let onPaste = parent.onFormattedMaterialPaste {
+                onPaste(edit)
+            } else if view.text != parent.text {
+                parent.text = view.text
+            }
+            parent.updateHeight(view, coordinator: self)
+
+            guard let start = view.position(from: view.beginningOfDocument, offset: startOffset),
+                  let end = view.position(from: start, offset: insertion.utf16.count),
+                  let insertedRange = view.textRange(from: start, to: end) else { return textRange }
+            view.selectedTextRange = view.textRange(from: end, to: end)
+            return insertedRange
         }
 
         func beginHeightMeasurement() -> UInt64 {

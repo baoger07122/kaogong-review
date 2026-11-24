@@ -185,6 +185,10 @@ struct ShenlunWorkspaceDoubt: Identifiable, Codable, Equatable, Sendable {
     var materialID: String?
     var pageIndex: Int?
     var createdAt: Date
+    var materialVersionID: String?
+    var materialTitle: String?
+    var conclusion: String?
+    var isVerified: Bool?
 
     init(id: String = UUID().uuidString, questionID: String, body: String, materialID: String? = nil, pageIndex: Int? = nil, createdAt: Date = .now) {
         self.id = id
@@ -203,8 +207,50 @@ enum ShenlunWorkspaceReviewState: String, Codable, Sendable {
     case confirmed
 }
 
+enum ShenlunWorkspaceScoreSource: String, CaseIterable, Codable, Hashable, Sendable {
+    case selfReview = "自评"
+    case teacher = "老师批改"
+    case external = "外部评分"
+}
+
+struct ShenlunWorkspaceReviewDraft: Codable, Equatable, Sendable {
+    var scoreText = ""
+    var scoreSource: ShenlunWorkspaceScoreSource? = .selfReview
+    var note = ""
+    var doubts: [ShenlunWorkspaceDoubt] = []
+
+    func validatedScore(maximum: Double?) throws -> Double? {
+        let value = scoreText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "．", with: ".")
+            .replacingOccurrences(of: "。", with: ".")
+        guard !value.isEmpty else { return nil }
+        let separator = Locale.current.decimalSeparator ?? "."
+        let normalized = value.replacingOccurrences(of: separator, with: ".")
+        guard normalized.range(of: #"^(?:[0-9]+(?:\.[0-9]{0,2})?|\.[0-9]{1,2})$"#, options: .regularExpression) != nil,
+              let score = Double(normalized), score.isFinite else {
+            throw ShenlunWorkspaceScoreError.invalidNumber
+        }
+        if let maximum, score > maximum {
+            throw ShenlunWorkspaceScoreError.exceedsMaximum(maximum)
+        }
+        return score
+    }
+}
+
+enum ShenlunWorkspaceScoreError: LocalizedError {
+    case invalidNumber
+    case exceedsMaximum(Double)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidNumber: "请输入非负分数，最多保留两位小数。"
+        case .exceedsMaximum(let maximum): "得分不能高于本次满分 \(maximum.formatted())。"
+        }
+    }
+}
+
 struct ShenlunWorkspaceAnswer: Identifiable, Codable, Equatable, Sendable {
-    var id: String { questionID }
+    var id: String { attemptID ?? questionID }
     var practiceID: String
     var questionID: String
     var answerText: String
@@ -215,6 +261,35 @@ struct ShenlunWorkspaceAnswer: Identifiable, Codable, Equatable, Sendable {
     var reviewState: ShenlunWorkspaceReviewState
     var confirmedScore: Double?
     var confirmedAnalysis: String?
+    var attemptID: String?
+    var attemptNumber: Int?
+    var questionRevisionAtCompletion: Int?
+    var fullScoreAtCompletion: Double?
+    var referenceAnswerAtCompletion: String?
+    var scoreSource: ShenlunWorkspaceScoreSource?
+    var reviewNote: String?
+    var reviewDraft: ShenlunWorkspaceReviewDraft?
+
+    var savedReview: ShenlunWorkspaceReviewDraft {
+        ShenlunWorkspaceReviewDraft(
+            scoreText: confirmedScore.map { $0.formatted(.number.grouping(.never).precision(.fractionLength(0...2))) } ?? "",
+            scoreSource: confirmedScore == nil ? .selfReview : scoreSource,
+            note: reviewNote ?? "",
+            doubts: doubts
+        )
+    }
+
+    func fullScore(for question: ShenlunWorkspaceQuestion) -> Double? {
+        questionRevisionAtCompletion == nil ? question.fullScore : fullScoreAtCompletion
+    }
+
+    mutating func complete(on date: Date, for question: ShenlunWorkspaceQuestion) {
+        isCompleted = true
+        completedAt = date
+        questionRevisionAtCompletion = question.revision
+        fullScoreAtCompletion = question.fullScore
+        referenceAnswerAtCompletion = question.referenceAnswer
+    }
 
     init(
         practiceID: String,
@@ -238,6 +313,36 @@ struct ShenlunWorkspaceAnswer: Identifiable, Codable, Equatable, Sendable {
         self.reviewState = reviewState
         self.confirmedScore = confirmedScore
         self.confirmedAnalysis = confirmedAnalysis
+    }
+}
+
+struct ShenlunWorkspaceAttemptHistory: Codable, Equatable, Sendable {
+    var practiceID: String
+    var questionID: String
+    var attempts: [ShenlunWorkspaceAnswer] = []
+
+    var completed: [ShenlunWorkspaceAnswer] {
+        attempts.filter(\.isCompleted).sorted {
+            let first = $0.completedAt ?? .distantPast
+            let second = $1.completedAt ?? .distantPast
+            if first != second { return first > second }
+            return ($0.attemptNumber ?? 1) > ($1.attemptNumber ?? 1)
+        }
+    }
+    var draft: ShenlunWorkspaceAnswer? { attempts.first { !$0.isCompleted } }
+    var nextNumber: Int { (completed.compactMap(\.attemptNumber).max() ?? 0) + 1 }
+    var latestScored: ShenlunWorkspaceAnswer? {
+        completed.first { $0.confirmedScore != nil && $0.reviewState == .confirmed }
+    }
+
+    init(practiceID: String, questionID: String, legacy: ShenlunWorkspaceAnswer? = nil) {
+        self.practiceID = practiceID
+        self.questionID = questionID
+        if var legacy {
+            legacy.attemptID = legacy.id
+            if legacy.isCompleted { legacy.attemptNumber = 1 }
+            attempts = [legacy]
+        }
     }
 }
 

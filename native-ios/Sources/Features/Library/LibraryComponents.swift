@@ -29,7 +29,8 @@ struct LibrarySidebar: View {
                     expandedSubject = nil
                     onScopeChanged()
                 } label: {
-                    sidebarRow(
+                    LibrarySidebarRowLabel(
+                        compact: compact,
                         title: "全部",
                         systemImage: "tray.full.fill",
                         color: AppTheme.accent,
@@ -70,7 +71,8 @@ struct LibrarySidebar: View {
             }
             onScopeChanged()
         } label: {
-            sidebarRow(
+            LibrarySidebarRowLabel(
+                compact: compact,
                 title: subject.name,
                 systemImage: subject.systemImage,
                 color: subject.color,
@@ -160,16 +162,31 @@ struct LibrarySidebar: View {
         }
     }
 
-    @ViewBuilder
-    private func sidebarRow(
-        title: String,
-        systemImage: String,
-        color: Color,
-        count: Int,
-        selected: Bool,
-        showsArrow: Bool,
-        expanded: Bool
-    ) -> some View {
+    private func count(
+        subject: String,
+        module: String? = nil,
+        reviewSources: [String: LibraryReviewSource]
+    ) -> Int {
+        records.lazy.filter {
+            ["errors", "notes", "stickies"].contains($0.collection)
+                && reviewSources[$0.compoundID] == scope.reviewSource
+                && $0.subject == subject
+                && (module == nil || LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource).contains($0))
+        }.count
+    }
+}
+
+struct LibrarySidebarRowLabel: View {
+    let compact: Bool
+    let title: String
+    let systemImage: String
+    let color: Color
+    let count: Int
+    let selected: Bool
+    var showsArrow = false
+    var expanded = false
+
+    var body: some View {
         if compact {
             VStack(spacing: 3) {
                 Image(systemName: systemImage)
@@ -221,19 +238,6 @@ struct LibrarySidebar: View {
             .background(selected ? AppTheme.accent.opacity(0.09) : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
         }
-    }
-
-    private func count(
-        subject: String,
-        module: String? = nil,
-        reviewSources: [String: LibraryReviewSource]
-    ) -> Int {
-        records.lazy.filter {
-            ["errors", "notes", "stickies"].contains($0.collection)
-                && reviewSources[$0.compoundID] == scope.reviewSource
-                && $0.subject == subject
-                && (module == nil || LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource).contains($0))
-        }.count
     }
 }
 

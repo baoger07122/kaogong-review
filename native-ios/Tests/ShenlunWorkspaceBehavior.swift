@@ -43,7 +43,31 @@ enum ShenlunWorkspaceBehavior {
                          "invalid PDF page range (invalid) must be rejected")
         }
         checkMaterialFormatting()
-        print("PASS Shenlun answer grid, explicit PDF page selection, and copied material formatting")
+        checkPaperPaste()
+        print("PASS Shenlun answer grid, PDF page selection, material formatting, and paper paste")
+    }
+
+    private static func checkPaperPaste() {
+        let materials = ShenlunPaperPasteParser.parse(
+            "材料 1\r\n首段。\r\n\r\n材料中还有下一段。\r\n给定资料 2：下一份。\r\n材料三\n第三份。",
+            kind: .materials
+        )
+        precondition(materials.map(\.heading) == ["材料 1", "给定资料 2", "材料三"])
+        precondition(materials.map(\.text) == ["首段。\n\n材料中还有下一段。", "下一份。", "第三份。"])
+
+        let questions = ShenlunPaperPasteParser.parse(
+            "第 1 题：梳理问题。\n要求：准确。\n一、保留这一条要求。\n第 2 题\n提出建议。\n作答要求：不超过 300 字。",
+            kind: .questions
+        )
+        precondition(questions.map(\.heading) == ["第 1 题", "第 2 题"])
+        precondition(questions.map(\.text) == ["梳理问题。", "提出建议。"])
+        precondition(questions.map(\.instructions) == ["准确。\n一、保留这一条要求。", "不超过 300 字。"])
+        let numbered = ShenlunPaperPasteParser.parse("一、概括现状。\n二、提出建议。\n三、写出提纲。", kind: .questions)
+        precondition(numbered.map(\.text) == ["概括现状。", "提出建议。", "写出提纲。"])
+        let unnumbered = ShenlunPaperPasteParser.parse("第一行。\n\n第二段。\n---\n下一题。", kind: .questions)
+        precondition(unnumbered.map(\.text) == ["第一行。\n\n第二段。", "下一题。"])
+        let single = ShenlunPaperPasteParser.parse("第一段\n第二段", kind: .materials)
+        precondition(single == [.init(heading: nil, text: "第一段\n第二段")])
     }
 
     private static func checkMaterialFormatting() {
@@ -75,5 +99,20 @@ enum ShenlunWorkspaceBehavior {
                      "retain word spacing and Unicode paragraph separators")
         precondition(ShenlunMaterialTextFormatter.format("无须整理的单段。") == "无须整理的单段。",
                      "preserve text with no line breaks")
+
+        let wrappedQuotes = "隆金公司把这类看起来极其简\n单、极其普通的小物件做到行业顶尖。\n　“\n  一个小小的门把手做起来并不简单，\n要保证开启和关闭的流畅度。\n  ”汪董事长说。"
+        let joinedQuotes = "隆金公司把这类看起来极其简单、极其普通的小物件做到行业顶尖。\n\n“一个小小的门把手做起来并不简单，要保证开启和关闭的流畅度。”汪董事长说。"
+        precondition(ShenlunMaterialTextFormatter.format(wrappedQuotes) == joinedQuotes,
+                     "join word-wrap and detached quotes even when copied lines carry indentation")
+
+        let editorText = "前文🚦替换处后文"
+        let selection = (editorText as NSString).range(of: "替换处")
+        let inserted = " 极其简\n单 "
+        let edit = ShenlunMaterialTextFormatter.formattedPaste(inserted, in: editorText, replacing: selection)
+        precondition(edit?.insertion == " 极其简单 ", "preserve paste-edge spaces around a selected span")
+        precondition(edit?.formattedText == "前文🚦 极其简单 后文")
+        precondition(edit?.restoredText == "前文🚦 极其简\n单 后文",
+                     "undo formatting must restore only the new paste's original line breaks")
+        precondition(ShenlunMaterialTextFormatter.formattedPaste("普通粘贴", in: editorText, replacing: selection) == nil)
     }
 }

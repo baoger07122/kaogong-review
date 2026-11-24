@@ -66,6 +66,7 @@ targets:
     platform: iOS
     sources:
       - Tests/Animation
+      - Tests/Shenlun
       - Sources/Features/Speed/SpeedAnimatedText.swift
     dependencies:
       - target: KaogongReviewNative
