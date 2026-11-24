@@ -295,7 +295,7 @@ struct LibraryInlineNoteView: View {
     @ObservedObject private var saveService = LibraryInlineNoteSaveService.shared
     private let readNote: () -> String
     private let persistedNoteReader: () -> String?
-    private let writeNote: (String, LibraryInlineNotePreparedSave?, String, ModelContext) throws -> String
+    private let writeNote: @MainActor (String, LibraryInlineNotePreparedSave?, String, ModelContext) async throws -> LibraryInlineNoteCommitReceipt
     private let currentRecordVersion: () -> String
     private let currentRecordEditVersion: () -> String
     private let currentRecordPayload: () -> Data?
@@ -379,23 +379,37 @@ struct LibraryInlineNoteView: View {
         }
         currentRecordPayload = { record.payload }
         recordCollection = record.collection
-        self.readNote = readNote ?? {
-            let object = record.jsonObject ?? [:]
-            if let note = object["note"] as? String { return note }
-            return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
-        }
+        self.readNote = readNote ?? { LibraryInlineNoteFinishPolicy.savedNote(in: record.jsonObject ?? [:]) }
         persistedNoteReader = { record.jsonObject?["note"] as? String }
         writeNote = { content, prepared, expectedVersion, modelContext in
-            let currentVersion = LibraryInlineNoteSaveService.versionKey(
-                updatedAt: record.updatedAt,
-                payload: record.payload
-            )
-            guard currentVersion == expectedVersion else { throw LibraryInlineNoteSaveError.versionConflict }
-            if let storedNote = record.jsonObject?["note"] as? String, storedNote == content {
-                return currentVersion
+            let latestPayload = record.payload
+            let currentVersion = LibraryInlineNoteSaveService.versionKey(updatedAt: record.updatedAt, payload: latestPayload)
+            let object = record.jsonObject
+            if object?["note"] as? String == content {
+                return LibraryInlineNoteCommitReceipt(version: currentVersion, payload: latestPayload)
             }
             guard let prepared, prepared.content == content else {
                 throw LibraryInlineNoteSaveError.invalidRecordPayload
+            }
+            guard LibraryInlineNoteFinishPolicy.preparedBaseMatches(expectedVersion, payloadDigest: prepared.basePayloadDigest) else {
+                throw LibraryInlineNoteSaveError.versionConflict
+            }
+
+            let confirmedWrite: LibraryInlineNotePreparedSave
+            if currentVersion == expectedVersion {
+                confirmedWrite = prepared
+            } else {
+                guard commitMode == .explicit, let object,
+                      LibraryInlineNoteFinishPolicy.canRebaseMetadataChange(
+                        expectedVersion: expectedVersion, preparedBaseDigest: prepared.basePayloadDigest,
+                        preparedBaseNote: prepared.baseNote, latestSavedNote: LibraryInlineNoteFinishPolicy.savedNote(in: object)
+                      ) else { throw LibraryInlineNoteSaveError.versionConflict }
+                confirmedWrite = try await LibraryInlineNoteSaveService.prepare(
+                    basePayload: latestPayload, collection: record.collection, content: content, updatedAt: .now
+                )
+                guard LibraryInlineNoteSaveService.versionKey(updatedAt: record.updatedAt, payload: record.payload) == currentVersion else {
+                    throw LibraryInlineNoteSaveError.versionConflict
+                }
             }
             let previousPayload = record.payload
             let previousIndexPayload = record.indexPayload
@@ -403,22 +417,21 @@ struct LibraryInlineNoteView: View {
             let wasAutosaveEnabled = modelContext.autosaveEnabled
             modelContext.autosaveEnabled = false
             defer { modelContext.autosaveEnabled = wasAutosaveEnabled }
-            record.replacePayload(prepared.payload, indexPayload: prepared.indexPayload)
-            record.updatedAt = prepared.updatedAt
+            record.replacePayload(confirmedWrite.payload, indexPayload: confirmedWrite.indexPayload)
+            record.updatedAt = confirmedWrite.updatedAt
             do {
                 let contextSaveStart = ProcessInfo.processInfo.systemUptime
                 try modelContext.save()
                 LibraryPerformanceLog.markIfSlow(
-                    "note.save.context bytes=\(prepared.payload.count)",
+                    "note.save.context bytes=\(confirmedWrite.payload.count)",
                     since: contextSaveStart
                 )
                 LibraryPerformanceLog.event(
-                    "note.save.persisted id=\(LibraryPerformanceLog.shortIdentifier(record.compoundID)) beforeBytes=\(previousPayload.count) afterBytes=\(prepared.payload.count)"
+                    "note.save.persisted id=\(LibraryPerformanceLog.shortIdentifier(record.compoundID)) beforeBytes=\(previousPayload.count) afterBytes=\(confirmedWrite.payload.count)"
                 )
-                return prepared.version
+                return LibraryInlineNoteCommitReceipt(version: confirmedWrite.version, payload: confirmedWrite.payload)
             } catch {
-                record.payload = previousPayload
-                record.indexPayload = previousIndexPayload
+                record.replacePayload(previousPayload, indexPayload: previousIndexPayload)
                 record.updatedAt = previousUpdatedAt
                 throw error
             }
@@ -451,7 +464,7 @@ struct LibraryInlineNoteView: View {
         recordCollection = ""
         self.writeNote = { content, _, expectedVersion, modelContext in
             try writeNote(content, modelContext)
-            return expectedVersion
+            return LibraryInlineNoteCommitReceipt(version: expectedVersion, payload: nil)
         }
     }
 
@@ -567,6 +580,9 @@ struct LibraryInlineNoteView: View {
                 LibraryInlineNoteAnchor(session: session)
                     .frame(width: 1, height: 1)
             }
+            if commitMode == .explicit, let errorMessage {
+                noteErrorFeedback(errorMessage)
+            }
             if editing {
                 NativeRichTextEditor(
                     html: $draft,
@@ -603,23 +619,8 @@ struct LibraryInlineNoteView: View {
                         .padding(.horizontal, 8)
                 }
             }
-            if let errorMessage {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(errorMessage)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .font(.system(size: 11))
-                        .foregroundStyle(AppTheme.danger)
-                    if commitMode == .explicit,
-                       pendingRecoveryDraftSnapshot != nil,
-                       draft == storedNote {
-                        Button("重试清理本地草稿") {
-                            recoveryConfirmation = .discard
-                        }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppTheme.danger)
-                        .frame(minHeight: 44, alignment: .leading)
-                    }
-                }
+            if commitMode != .explicit, let errorMessage {
+                noteErrorFeedback(errorMessage)
             } else if let displayWarning, !editing {
                 Text(displayWarning)
                     .font(.system(size: 11))
@@ -683,6 +684,7 @@ struct LibraryInlineNoteView: View {
                     finishEditing(completion: completion)
                 }
             }
+            guard !editing, !isFinishing else { return }
             saveService.markExistingContentConfirmed(
                 recordID: renderDocumentID,
                 content: storedNote,
@@ -1090,9 +1092,24 @@ struct LibraryInlineNoteView: View {
                 }
                 Divider()
             }
-            Label("未保存草稿", systemImage: "exclamationmark.triangle")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(AppTheme.warning)
+            HStack(spacing: 8) {
+                Label("未保存草稿", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppTheme.warning)
+                Spacer(minLength: 0)
+                if commitMode == .explicit {
+                    if manualDraftHasVersionConflict {
+                        rebaseDraftButton
+                    } else if pendingRecoveryDraftSnapshot?.content == draft {
+                        Button("保存草稿") { recoveryConfirmation = .restoreOriginal }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.blue)
+                            .frame(minHeight: 44)
+                            .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
+                            .accessibilityIdentifier("library-inline-note-pending-save")
+                    }
+                }
+            }
             if let preparedDraft = currentPreparedPendingDraft {
                 NativeRichTextDisplay(
                     html: draft,
@@ -1146,29 +1163,39 @@ struct LibraryInlineNoteView: View {
         }
     }
 
+    private func noteErrorFeedback(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(AppTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+            if commitMode == .explicit, pendingRecoveryDraftSnapshot != nil, draft == storedNote {
+                Button("重试清理本地草稿") {
+                    recoveryConfirmation = .discard
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AppTheme.danger)
+                .frame(minHeight: 44, alignment: .leading)
+            }
+        }
+        .accessibilityIdentifier("library-inline-note-error")
+    }
+
     @ViewBuilder private var manualDraftActions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if manualDraftHasVersionConflict {
-                rebaseDraftButton
-            } else if let prepared = currentPreparedPendingDraft,
-                      prepared.editableAttributedText != nil {
-                Button("继续编辑") { resumePendingDraftEditing() }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.blue)
-                    .frame(minHeight: 44, alignment: .leading)
-                    .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
-            } else if currentPreparedPendingDraft != nil
-                        || pendingDraftPreparationFailureKey == pendingDraftRenderKey {
-                Button("原样恢复") { recoveryConfirmation = .restoreOriginal }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.blue)
-                    .frame(minHeight: 44, alignment: .leading)
-                    .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
-            } else {
-                Text("正在准备草稿操作…")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .frame(minHeight: 32, alignment: .leading)
+            if !manualDraftHasVersionConflict {
+                if currentPreparedPendingDraft?.editableAttributedText != nil {
+                    Button("继续编辑") { resumePendingDraftEditing() }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.blue)
+                        .frame(minHeight: 44, alignment: .leading)
+                        .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
+                } else if currentPreparedPendingDraft == nil, pendingDraftPreparationFailureKey != pendingDraftRenderKey {
+                    Text("正在准备草稿预览…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(minHeight: 32, alignment: .leading)
+                }
             }
 
             Button("丢弃草稿") { recoveryConfirmation = .discard }
@@ -1188,7 +1215,7 @@ struct LibraryInlineNoteView: View {
     }
 
     private func recoveryConfirmationTitle(for action: LibraryInlineNoteRecoveryConfirmation) -> String {
-        action == .restoreOriginal ? "原样恢复这份草稿？" : "丢弃这份本地草稿？"
+        action == .restoreOriginal ? "保存这份草稿？" : "丢弃这份本地草稿？"
     }
 
     private func recoveryConfirmationMessage(for action: LibraryInlineNoteRecoveryConfirmation) -> String {
@@ -1477,6 +1504,7 @@ struct LibraryInlineNoteView: View {
                             let state = self.saveService.state(recordID: recordID)
                             guard state.confirmedDraftVersion >= snapshot.draftVersion,
                                   state.confirmedContent == snapshot.content,
+                                  self.persistedNoteReader() == snapshot.content,
                                   committedVersion == state.confirmedRecordVersion else {
                                 self.isFinishing = false
                                 self.activeRecoveryCommitID = nil
@@ -1557,7 +1585,8 @@ struct LibraryInlineNoteView: View {
         let state = saveService.state(recordID: renderDocumentID)
         let isResumingPendingDraft = html != storedNote && state.latestContent == html
         if commitMode == .explicit {
-            if activeBaseVersion.isEmpty {
+            if activeBaseVersion.isEmpty
+                || (html == storedNote && pendingRecoveryDraftSnapshot == nil && !manualDraftHasVersionConflict) {
                 activeBaseVersion = currentRecordEditVersion()
                 activeBasePayload = currentRecordPayload()
             }
@@ -2854,8 +2883,9 @@ struct LibraryInlineNoteView: View {
             collection: recordCollection,
             content: content,
             requiresBackgroundTime: requiresBackgroundTime,
+            requiresWrite: commitMode == .explicit && persistedNoteReader() != content,
             commit: { prepared, expectedVersion in
-                try self.writeNote(content, prepared, expectedVersion, self.modelContext)
+                try await self.writeNote(content, prepared, expectedVersion, self.modelContext)
             },
             completion: { result in
                 switch result {

@@ -14,6 +14,22 @@ struct LibraryInlineNoteFinishRecovery: Equatable {
 }
 
 enum LibraryInlineNoteFinishPolicy {
+    static func savedNote(in object: [String: Any]) -> String {
+        if let note = object["note"] as? String { return note }
+        return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
+    }
+
+    static func preparedBaseMatches(_ version: String, payloadDigest: String) -> Bool {
+        guard let separator = version.lastIndex(of: ":"), payloadDigest.count == 64 else { return false }
+        return version[version.index(after: separator)...] == payloadDigest[...]
+    }
+
+    static func canRebaseMetadataChange(
+        expectedVersion: String, preparedBaseDigest: String, preparedBaseNote: String, latestSavedNote: String
+    ) -> Bool {
+        preparedBaseMatches(expectedVersion, payloadDigest: preparedBaseDigest) && preparedBaseNote == latestSavedNote
+    }
+
     static func finalRevision(
         beforeEnding: LibraryInlineNoteFinishRevision,
         endedHTML: String?,

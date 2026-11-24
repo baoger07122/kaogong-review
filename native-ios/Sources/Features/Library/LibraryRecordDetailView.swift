@@ -2412,7 +2412,6 @@ struct LibraryRecordDetailView: View {
         tagDisplayPreferences.settings(
             subject: activeSubject,
             module: activeModule,
-            typeID: object["errorTypeID"] as? String,
             records: records
         )
     }

@@ -65,9 +65,37 @@ struct LibraryKnowledgePointTagLayout: Layout {
 }
 
 struct LibraryKnowledgePointTagCloud: View {
-    let points: [String]
-    var label: String? = nil
-    var showsBulb = false
+    private struct Tag {
+        let text: String
+        let kind: LibraryCardTopTag.Kind?
+
+        var accessibilityText: String {
+            switch kind {
+            case .knowledgePoint: "考点，\(text)"
+            case .mistakeTag: "错因标签，\(text)"
+            case nil: text
+            }
+        }
+    }
+
+    private let tags: [Tag]
+    private let label: String?
+    private let showsBulb: Bool
+
+    init(points: [String], label: String? = nil, showsBulb: Bool = false) {
+        tags = points.compactMap { value in
+            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : Tag(text: text, kind: nil)
+        }
+        self.label = label
+        self.showsBulb = showsBulb
+    }
+
+    init(cardTags: [LibraryCardTopTag], showsBulb: Bool) {
+        tags = cardTags.map { Tag(text: $0.text, kind: $0.kind) }
+        label = nil
+        self.showsBulb = showsBulb
+    }
 
     static func leadingAccessoryWidth(label: String? = nil, showsBulb: Bool = false) -> CGFloat {
         if let label {
@@ -75,11 +103,6 @@ struct LibraryKnowledgePointTagCloud: View {
             return ceil(("\(label)：" as NSString).size(withAttributes: [.font: font]).width) + 6
         }
         return showsBulb ? 17 : 0
-    }
-
-    private var visiblePoints: [String] {
-        points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     var body: some View {
@@ -98,25 +121,29 @@ struct LibraryKnowledgePointTagCloud: View {
                     .frame(width: 11)
                     .padding(.top, 4)
             }
-            LibraryKnowledgePointTagLayout(points: visiblePoints) {
-                ForEach(Array(visiblePoints.enumerated()), id: \.offset) { _, point in
-                    Text(point)
+            LibraryKnowledgePointTagLayout(points: tags.map(\.text)) {
+                ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
+                    let isKnowledgePoint = tag.kind == .knowledgePoint
+                    Text(tag.text)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+                        .foregroundStyle(isKnowledgePoint
+                            ? AppTheme.accent
+                            : Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, LibraryKnowledgePointTagLayout.horizontalPadding)
                         .padding(.vertical, LibraryKnowledgePointTagLayout.verticalPadding)
                         .overlay {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
+                                .stroke(isKnowledgePoint ? AppTheme.accent.opacity(0.72) : Color.primary.opacity(0.15), lineWidth: 0.75)
                         }
+                        .accessibilityLabel(tag.accessibilityText)
                 }
             }
             .accessibilityElement(children: .contain)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel(visiblePoints.joined(separator: "、"))
+        .accessibilityLabel(tags.map(\.accessibilityText).joined(separator: "、"))
     }
 }

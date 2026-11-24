@@ -264,6 +264,13 @@ struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct LibraryCardTopTag: Equatable {
+    enum Kind: Equatable { case knowledgePoint, mistakeTag }
+
+    let text: String
+    let kind: Kind
+}
+
 struct LibraryRecordSnapshot: Identifiable {
     let record: StoredRecord
     let subject: String
@@ -286,7 +293,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let sentiment: String
     let wordEntryKinds: [String]
     let knowledgePoints: [String]
-    let cardTopTagLabels: [String]
+    let cardTopTags: [LibraryCardTopTag]
+    var cardTopTagLabels: [String] { cardTopTags.map(\.text) }
     let errorCause: String
     let quantityErrorCauses: [String]
     let dataAnalysisErrorCause: String
@@ -400,15 +408,20 @@ struct LibraryRecordSnapshot: Identifiable {
         let mistakeTagNames = LibraryKnowledgePointReferencePolicy.displayNames(
             from: LibraryMistakeTagPolicy.references(from: object)
         ).map(Self.plainText).filter { !$0.isEmpty }
-        var cardHeaderNames: [String] = []
+        var cardTags: [LibraryCardTopTag] = []
         if tagDisplaySettings.showsKnowledgePointCardHeader {
-            cardHeaderNames.append(contentsOf: resolvedKnowledgePoints)
+            var seen = Set<String>()
+            cardTags += resolvedKnowledgePoints.filter { seen.insert($0).inserted }.map {
+                LibraryCardTopTag(text: $0, kind: .knowledgePoint)
+            }
         }
         if tagDisplaySettings.showsMistakeTagCardHeader {
-            cardHeaderNames.append(contentsOf: mistakeTagNames)
+            var seen = Set<String>()
+            cardTags += mistakeTagNames.filter { seen.insert($0).inserted }.map {
+                LibraryCardTopTag(text: $0, kind: .mistakeTag)
+            }
         }
-        var seenCardHeaderNames = Set<String>()
-        cardTopTagLabels = cardHeaderNames.filter { seenCardHeaderNames.insert($0).inserted }
+        cardTopTags = cardTags
         let quantityErrorCauses = record.collection == "errors" && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: object)
             : []

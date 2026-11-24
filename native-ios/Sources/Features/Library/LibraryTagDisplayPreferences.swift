@@ -28,59 +28,55 @@ final class LibraryTagDisplayPreferences: ObservableObject {
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode(PersistedState.self, from: data) {
-            state = decoded
-        } else {
-            state = PersistedState()
+        state = Self.loadState(defaults.data(forKey: Self.storageKey))
+    }
+
+    private static func loadState(_ data: Data?) -> PersistedState {
+        guard let data, var decoded = try? JSONDecoder().decode(PersistedState.self, from: data) else {
+            return PersistedState()
         }
+
+        var typedSettingsByModule: [String: [LibraryTagDisplaySettings]] = [:]
+        for (key, settings) in decoded.settingsByScope {
+            let parts = key.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 4, parts[0] == "type" else { continue }
+            typedSettingsByModule["module:\(parts[1]):\(parts[2])", default: []].append(settings)
+        }
+        for (key, settings) in typedSettingsByModule where decoded.settingsByScope[key] == nil {
+            if let first = settings.first, settings.allSatisfy({ $0 == first }) {
+                decoded.settingsByScope[key] = first
+            }
+        }
+        return decoded
     }
 
     func settings(
         subject: String,
         module: String,
-        typeID: String?,
         records: [StoredRecord],
-        validTypeIDs: Set<String>? = nil,
         validQuantityTypes: Set<String>? = nil
     ) -> LibraryTagDisplaySettings {
-        guard !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .defaults
-        }
+        guard !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .defaults }
 
         if subject == "数量关系" {
             let availableTypes = validQuantityTypes ?? Set(QuantityQuestionTypeRepository.types(records: records))
             guard availableTypes.contains(module),
-                  let typeID = state.quantityTypeIDsByName[quantityNameKey(module)] else {
-                return .defaults
-            }
-            return state.settingsByScope["quantity-type:\(typeID)"] ?? .defaults
+                  let id = state.quantityTypeIDsByName[quantityNameKey(module)] else { return .defaults }
+            return state.settingsByScope["quantity-type:\(id)"] ?? .defaults
         }
 
-        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject) else { return .defaults }
-        let moduleSettings = state.settingsByScope[moduleKey(subject: subject, module: module)] ?? .defaults
-        let normalizedTypeID = typeID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalizedTypeID, !normalizedTypeID.isEmpty else { return moduleSettings }
-
-        let availableTypeIDs = validTypeIDs ?? Set(
-            LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-                .filter { $0.isAvailable(in: module) }
-                .map(\.id)
-        )
-        guard availableTypeIDs.contains(normalizedTypeID) else { return .defaults }
-        return state.settingsByScope[typeKey(subject: subject, module: module, typeID: normalizedTypeID)] ?? moduleSettings
+        guard LibraryErrorTypeSubject(rawValue: subject) != nil else { return .defaults }
+        return state.settingsByScope[moduleKey(subject: subject, module: module)] ?? .defaults
     }
 
     func update(
         _ settings: LibraryTagDisplaySettings,
         subject: String,
         module: String,
-        typeID: String?,
         records: [StoredRecord]
     ) throws {
         guard !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var next = state
-
         if subject == "数量关系" {
             guard QuantityQuestionTypeRepository.types(records: records).contains(module) else {
                 throw PersistenceError.invalidScope
@@ -90,20 +86,9 @@ final class LibraryTagDisplayPreferences: ObservableObject {
             next.quantityTypeIDsByName[nameKey] = id
             next.settingsByScope["quantity-type:\(id)"] = settings
         } else {
-            guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject) else {
-                throw PersistenceError.invalidScope
-            }
-            let normalizedTypeID = typeID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let normalizedTypeID, !normalizedTypeID.isEmpty {
-                let isValidType = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-                    .contains { $0.id == normalizedTypeID && $0.isAvailable(in: module) }
-                guard isValidType else { throw PersistenceError.invalidScope }
-                next.settingsByScope[typeKey(subject: subject, module: module, typeID: normalizedTypeID)] = settings
-            } else {
-                next.settingsByScope[moduleKey(subject: subject, module: module)] = settings
-            }
+            guard LibraryErrorTypeSubject(rawValue: subject) != nil else { throw PersistenceError.invalidScope }
+            next.settingsByScope[moduleKey(subject: subject, module: module)] = settings
         }
-
         try persist(next)
     }
 
@@ -126,7 +111,7 @@ final class LibraryTagDisplayPreferences: ObservableObject {
     func restorePersistedData(_ data: Data?) {
         if let data {
             defaults.set(data, forKey: Self.storageKey)
-            state = (try? JSONDecoder().decode(PersistedState.self, from: data)) ?? PersistedState()
+            state = Self.loadState(data)
         } else {
             defaults.removeObject(forKey: Self.storageKey)
             state = PersistedState()
@@ -154,10 +139,6 @@ final class LibraryTagDisplayPreferences: ObservableObject {
         "module:\(keyPart(subject)):\(keyPart(module))"
     }
 
-    private func typeKey(subject: String, module: String, typeID: String) -> String {
-        "type:\(keyPart(subject)):\(keyPart(module)):\(keyPart(typeID))"
-    }
-
     private func quantityNameKey(_ name: String) -> String {
         "quantity:\(keyPart(name))"
     }
@@ -175,7 +156,7 @@ final class LibraryTagDisplayPreferences: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .invalidScope: return "当前题型范围已失效，请重新选择后再试。"
+            case .invalidScope: return "当前模块范围已失效，请重新选择后再试。"
             case .writeFailed: return "标签展示设置未能保存，原设置已保留。"
             }
         }
@@ -186,14 +167,13 @@ struct LibraryTagDisplaySettingsSheet: View {
     @ObservedObject private var preferences = LibraryTagDisplayPreferences.shared
     let subject: String
     let module: String
-    let typeID: String?
     let scopeDescription: String
     let records: [StoredRecord]
     let onClose: () -> Void
     @State private var errorMessage: String?
 
     private var settings: LibraryTagDisplaySettings {
-        preferences.settings(subject: subject, module: module, typeID: typeID, records: records)
+        preferences.settings(subject: subject, module: module, records: records)
     }
 
     var body: some View {
@@ -338,7 +318,6 @@ struct LibraryTagDisplaySettingsSheet: View {
                 updated,
                 subject: subject,
                 module: module,
-                typeID: typeID,
                 records: records
             )
             errorMessage = nil

@@ -17,6 +17,13 @@ struct LibraryInlineNotePreparedSave: Sendable {
     let indexPayload: Data?
     let updatedAt: Date
     let version: String
+    let basePayloadDigest: String
+    let baseNote: String
+}
+
+struct LibraryInlineNoteCommitReceipt: Sendable {
+    let version: String
+    let payload: Data?
 }
 
 enum LibraryInlineNoteSavePhase: String, Equatable, Sendable {
@@ -106,7 +113,7 @@ actor LibraryInlineNoteDraftStorage {
 final class LibraryInlineNoteSaveService: ObservableObject {
     static let shared = LibraryInlineNoteSaveService()
 
-    typealias Commit = @MainActor (LibraryInlineNotePreparedSave?, String) throws -> String
+    typealias Commit = @MainActor (LibraryInlineNotePreparedSave?, String) async throws -> LibraryInlineNoteCommitReceipt
     typealias Completion = @MainActor (Result<String, Error>) -> Void
 
     private struct RecordVersion: Hashable {
@@ -309,6 +316,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         content: String,
         updatedAt: Date = .now,
         requiresBackgroundTime: Bool = false,
+        requiresWrite: Bool = false,
         commit: @escaping Commit,
         completion: @escaping Completion = { _ in }
     ) {
@@ -319,7 +327,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
             return
         }
 
-        if state.confirmedDraftVersion == draftVersion, state.confirmedContent == content {
+        if !requiresWrite, state.confirmedDraftVersion == draftVersion, state.confirmedContent == content {
             completion(.success(state.confirmedRecordVersion ?? baseVersion))
             return
         }
@@ -405,7 +413,8 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 } else {
                     expectedVersion = job.snapshot.baseVersion
                 }
-                let committedVersion = try job.commit(prepared, expectedVersion)
+                let receipt = try await job.commit(prepared, expectedVersion)
+                let committedVersion = receipt.version
 
                 var updatedChain = committedVersionChains[recordID] ?? VersionChain(
                     knownVersions: [],
@@ -416,7 +425,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 updatedChain.knownVersions.insert(expectedVersion)
                 updatedChain.knownVersions.insert(committedVersion)
                 updatedChain.latestVersion = committedVersion
-                updatedChain.latestPayload = prepared?.payload ?? updatedChain.latestPayload
+                updatedChain.latestPayload = receipt.payload ?? updatedChain.latestPayload
                 committedVersionChains[recordID] = updatedChain
 
                 do {
@@ -436,7 +445,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                     state.confirmedRecordVersion = committedVersion
                     if state.latestDraftVersion == job.snapshot.draftVersion {
                         state.latestBaseVersion = committedVersion
-                        state.latestBasePayload = prepared?.payload ?? job.basePayload
+                        state.latestBasePayload = receipt.payload ?? job.basePayload
                         state.phase = .saved
                         state.errorMessage = nil
                     } else {
@@ -445,7 +454,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                             || (state.latestBaseVersion.map { chain?.knownVersions.contains($0) == true } ?? false)
                         if latestBaseBelongsToThisChain {
                             state.latestBaseVersion = committedVersion
-                            state.latestBasePayload = prepared?.payload ?? job.basePayload
+                            state.latestBasePayload = receipt.payload ?? job.basePayload
                         }
                         if self.hasQueuedDraft(recordID: recordID, draftVersion: state.latestDraftVersion) {
                             state.phase = .queued
@@ -513,7 +522,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         backgroundTaskID = .invalid
     }
 
-    private static func prepare(
+    nonisolated static func prepare(
         basePayload: Data,
         collection: String,
         content: String,
@@ -523,6 +532,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
             guard var object = (try JSONSerialization.jsonObject(with: basePayload)) as? [String: Any] else {
                 throw LibraryInlineNoteSavePreparationError.invalidPayload
             }
+            let baseNote = LibraryInlineNoteFinishPolicy.savedNote(in: object)
             object["note"] = content
             object["updatedAt"] = ISO8601DateFormatter().string(from: updatedAt)
             let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -532,15 +542,20 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 payload: payload,
                 indexPayload: indexPayload,
                 updatedAt: updatedAt,
-                version: versionKey(updatedAt: updatedAt, payload: payload)
+                version: versionKey(updatedAt: updatedAt, payload: payload),
+                basePayloadDigest: payloadDigest(basePayload),
+                baseNote: baseNote
             )
         }.value
     }
 
+    private nonisolated static func payloadDigest(_ payload: Data) -> String {
+        SHA256.hash(data: payload).map { String(format: "%02x", Int($0)) }.joined()
+    }
+
     nonisolated static func versionKey(updatedAt: Date?, payload: Data) -> String {
-        let payloadDigest = SHA256.hash(data: payload).map { String(format: "%02x", Int($0)) }.joined()
         let dateKey = updatedAt.map { String($0.timeIntervalSince1970.bitPattern, radix: 16) } ?? "none"
-        return "\(dateKey):\(payloadDigest)"
+        return "\(dateKey):\(payloadDigest(payload))"
     }
 
     nonisolated static func hasPayloadDigest(_ version: String) -> Bool {

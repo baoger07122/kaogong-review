@@ -144,16 +144,7 @@ struct KnowledgePointManagerView: View {
             && !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var tagDisplayScopeDescription: String {
-        if subject.name == "数量关系" {
-            return "\(subject.name) · \(module)"
-        }
-        if let selectedVerbalTypeID,
-           let selectedType = verbalTypes.first(where: { $0.id == selectedVerbalTypeID }) {
-            return "\(subject.name) · \(module) · \(selectedType.name)"
-        }
-        return "\(subject.name) · \(module) · 模块默认"
-    }
+    private var tagDisplayScopeDescription: String { "\(subject.name) · \(module)" }
 
     var body: some View {
         ScrollView {
@@ -430,7 +421,6 @@ struct KnowledgePointManagerView: View {
                 LibraryTagDisplaySettingsSheet(
                     subject: subject.name,
                     module: module,
-                    typeID: selectedVerbalTypeID,
                     scopeDescription: tagDisplayScopeDescription,
                     records: records,
                     onClose: { showsTagDisplaySettings = false }

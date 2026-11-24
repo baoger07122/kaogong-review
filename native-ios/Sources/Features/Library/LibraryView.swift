@@ -921,7 +921,6 @@ struct LibraryView: View {
     private func snapshots(from scopedRecords: [StoredRecord]) -> [LibraryRecordSnapshot] {
         let wordNames = snapshotCache.wordNames(in: records)
         let examTitles = snapshotCache.examTitles(in: records)
-        let typeCatalog = snapshotCache.knowledgePointCatalog(records: records)
         let quantityTypes = Set(recordListCache.quantityTypes(records: records))
         return Array(scopedRecords.prefix(renderLimit)).map {
             snapshotCache.snapshot(
@@ -933,7 +932,6 @@ struct LibraryView: View {
                 knowledgePointNames: knowledgePointNames(for: $0),
                 tagDisplaySettings: tagDisplaySettings(
                     for: $0,
-                    typeCatalog: typeCatalog,
                     quantityTypes: quantityTypes
                 )
             )
@@ -942,7 +940,6 @@ struct LibraryView: View {
 
     private func tagDisplaySettings(
         for record: StoredRecord,
-        typeCatalog: LibraryKnowledgePointCatalogSnapshot,
         quantityTypes: Set<String>
     ) -> LibraryTagDisplaySettings {
         let object = record.compatibilityIndexObject ?? [:]
@@ -952,22 +949,10 @@ struct LibraryView: View {
         let module = [record.module, object["module"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
-        let validTypeIDs: Set<String>?
-        if let typeSubject = LibraryErrorTypeSubject(rawValue: subject) {
-            validTypeIDs = Set(
-                typeCatalog.types(for: typeSubject)
-                    .filter { $0.isAvailable(in: module) }
-                    .map(\.id)
-            )
-        } else {
-            validTypeIDs = nil
-        }
         return tagDisplayPreferences.settings(
             subject: subject,
             module: module,
-            typeID: object["errorTypeID"] as? String,
             records: records,
-            validTypeIDs: validTypeIDs,
             validQuantityTypes: quantityTypes
         )
     }

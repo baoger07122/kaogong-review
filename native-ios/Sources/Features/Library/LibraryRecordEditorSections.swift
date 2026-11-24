@@ -523,7 +523,6 @@ private struct LibraryErrorAnalysisSection: View {
         tagDisplayPreferences.settings(
             subject: draft.subject,
             module: draft.module,
-            typeID: draft.errorTypeID,
             records: records
         )
     }

@@ -712,23 +712,23 @@ private struct LibraryErrorRecordCard: View {
     @ViewBuilder
     private var questionKnowledgeHeader: some View {
         if isQuantityRelations {
-            if showsQuantityTypeInHeader || !snapshot.cardTopTagLabels.isEmpty {
+            if showsQuantityTypeInHeader || !snapshot.cardTopTags.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     if showsQuantityTypeInHeader {
                         knowledgeHeaderTag(quantityQuestionTypeTitle)
                     }
-                    if !snapshot.cardTopTagLabels.isEmpty {
-                        knowledgePointsLine(snapshot.cardTopTagLabels)
+                    if !snapshot.cardTopTags.isEmpty {
+                        cardTagsLine(snapshot.cardTopTags)
                     }
                 }
             }
-        } else if !snapshot.cardTopTagLabels.isEmpty {
-            knowledgePointsLine(snapshot.cardTopTagLabels)
+        } else if !snapshot.cardTopTags.isEmpty {
+            cardTagsLine(snapshot.cardTopTags)
         }
     }
 
-    private func knowledgePointsLine(_ values: [String]) -> some View {
-        LibraryKnowledgePointTagCloud(points: values, showsBulb: true)
+    private func cardTagsLine(_ values: [LibraryCardTopTag]) -> some View {
+        LibraryKnowledgePointTagCloud(cardTags: values, showsBulb: true)
     }
 
     private func knowledgeHeaderTag(_ value: String) -> some View {
