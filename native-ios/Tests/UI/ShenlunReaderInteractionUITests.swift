@@ -11,7 +11,7 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
 
         let reader = element(app, identifier: "shenlun-material-reader")
         XCTAssertTrue(reader.waitForExistence(timeout: 15))
-        let zoom = app.buttons["shenlun-reader-zoom"].firstMatch
+        let zoom = element(app, identifier: "shenlun-reader-zoom")
         reader.pinch(withScale: 1.5, velocity: 1)
 
         XCTAssertTrue(zoom.waitForExistence(timeout: 5), "Pinching should reveal the zoom control")
