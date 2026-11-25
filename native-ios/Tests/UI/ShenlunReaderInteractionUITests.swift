@@ -16,7 +16,9 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
 
         XCTAssertTrue(zoom.waitForExistence(timeout: 5), "Pinching should reveal the zoom control")
         zoom.tap()
-        let twoHundredPercent = app.buttons["200%"].firstMatch
+        let twoHundredPercent = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "200%"))
+            .firstMatch
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
         twoHundredPercent.tap()
         XCTAssertEqual(zoom.value as? String, "200%")
