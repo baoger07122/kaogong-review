@@ -837,7 +837,10 @@ struct ShenlunPracticeDetailView: View {
                             context.draw(text, at: center)
                         } else {
                             let resolved = context.resolve(text)
-                            let width = resolved.measure(in: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)).width
+                            let width = resolved.measure(in: CGSize(
+                                width: CGFloat.greatestFiniteMagnitude,
+                                height: CGFloat.greatestFiniteMagnitude
+                            )).width
                             var fitted = context
                             fitted.translateBy(x: center.x, y: center.y)
                             fitted.scaleBy(x: min(1, (cell - 2) / max(width, 1)), y: 1)

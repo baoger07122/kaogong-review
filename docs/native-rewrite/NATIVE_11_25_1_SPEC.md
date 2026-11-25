@@ -18,3 +18,10 @@
 - 交互验收：发布流程运行 `ShenlunReaderInteractionUITests` 的纸面捏合/倍率/涂鸦画布坐标用例，以及完成作答后默认答案页、成绩位置、格子纸/普通切换、心得与成绩双向独立保存用例。进入单题，捏合纸面并通过倍率菜单选择比例；打开涂鸦，在缩放纸面上画线，核对画布与纸面坐标对齐；完成答案后默认落在「对照答案」，分别保存成绩和心得并往返切换。
 - 模拟器自动化通过不等同于 iPad 实机验收。实际 Pencil 书写、PDF/图片材料缩放、分屏和旋转仍单独记录为实机待验。
 - 发布触发：向 `codex/ios-native-rewrite` 推送一次触发 `ios-native-unsigned.yml`，不得对同一提交手动重复派发。只有 Release IPA 资产可下载后才报告发布完成。
+
+## 首次编译阻塞与修复
+
+- 首次推送 run `45536127752` 在编译阶段失败，未运行模拟器测试或归档。
+- Xcode 报告 `ShenlunPracticeDetailView.swift` 的 `.greatestFiniteMagnitude` 类型歧义，已显式指定 `CGFloat.greatestFiniteMagnitude`。
+- UI 测试夹具的 `ShenlunWorkspaceQuestion` 初始化参数顺序不符，已将 `type` 放到 `title` 前。
+- 修正后的发布提交会重新运行这批必要检查和 iPad 设备目标归档；初次失败不视为构建或交付成功。
