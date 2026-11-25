@@ -11,23 +11,27 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
 
         let reader = element(app, identifier: "shenlun-material-reader")
         XCTAssertTrue(reader.waitForExistence(timeout: 15))
-        let zoom = element(app, identifier: "shenlun-reader-zoom")
+        let paper = element(app, identifier: "shenlun-material-paper")
+        XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        let initialPaperWidth = paper.frame.width
         reader.pinch(withScale: 1.5, velocity: 1)
-
-        XCTAssertTrue(zoom.waitForExistence(timeout: 5), "Pinching should reveal the zoom control")
-        zoom.tap()
+        // The zoom control is a two-second overlay anchored at the reader's top leading corner.
+        reader.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.03)).tap()
         let twoHundredPercent = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "200%"))
             .firstMatch
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
         twoHundredPercent.tap()
-        XCTAssertEqual(zoom.value as? String, "200%")
+        let paperReachedSelectedZoom = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in paper.frame.width > initialPaperWidth * 1.8 },
+            object: paper
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [paperReachedSelectedZoom], timeout: 5), .completed)
 
         let openDoodle = app.buttons["shenlun-doodle-open"].firstMatch
         XCTAssertTrue(openDoodle.waitForExistence(timeout: 5))
         openDoodle.tap()
 
-        let paper = element(app, identifier: "shenlun-material-paper")
         let canvasID = "shenlun-page-drawing-ui-test-\(sessionID)-material-ui-test-\(sessionID)-layer"
         let canvas = element(app, identifier: canvasID)
         XCTAssertTrue(paper.waitForExistence(timeout: 5))
