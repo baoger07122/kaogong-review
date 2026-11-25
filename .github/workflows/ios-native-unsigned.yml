@@ -396,6 +396,8 @@ jobs:
               -parallel-testing-enabled NO \
               -only-testing:SpeedAnimationTests/ShenlunPaperRepositoryTests \
               -only-testing:SpeedAnimationTests/ShenlunWorkspacePaperLayoutTests \
+              -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testPinchZoomKeepsAnnotationCanvasAlignedWithPaper \
+              -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testAnswerAndReviewTabsSaveTheirOwnFields \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
           fi
 
@@ -559,6 +561,28 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailInlineNoteSurvivesReopenRestartAndKeepsAdjacentRichNoteReadable \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
+            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
+            exit 1
+          fi
+
+      - name: Test Shenlun reader interactions
+        if: steps.simulator_scope.outputs.shenlun == 'true'
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          RESULT_PATH=build/ShenlunReaderInteraction.xcresult
+          if ! xcodebuild test-without-building \
+            -project native-ios/KaogongReviewNative.xcodeproj \
+            -scheme KaogongReviewNative \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/ShenlunTestDerivedData \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RESULT_PATH" \
+            -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testPinchZoomKeepsAnnotationCanvasAlignedWithPaper \
+            -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testAnswerAndReviewTabsSaveTheirOwnFields \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1
@@ -748,6 +772,7 @@ jobs:
           IPA_NAME: ${{ env.IPA_NAME }}
           NATIVE_VERSION: ${{ env.NATIVE_VERSION }}
           RUN_SHENLUN_TESTS: ${{ steps.simulator_scope.outputs.shenlun }}
+          RUN_SHENLUN_UI_TESTS: ${{ steps.simulator_scope.outputs.shenlun }}
         run: |
           TAG="native-v${NATIVE_VERSION}"
           BUILD_NUMBER=$(awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
@@ -785,9 +810,16 @@ jobs:
           if [ -z "$SPEC_LIST" ]; then SPEC_LIST="- No implementation specification file was added in this commit."; fi
           if [ -z "$PROTOTYPE_LIST" ]; then PROTOTYPE_LIST="- No approved prototype file was added in this commit."; fi
           if [ "$RUN_SHENLUN_TESTS" = "true" ]; then
-            SIMULATOR_TEST_LINE="- iPad simulator tests: ShenlunPaperRepositoryTests and ShenlunWorkspacePaperLayoutTests passed."
+            SIMULATOR_TEST_LINE="- iPad simulator model tests: ShenlunPaperRepositoryTests and ShenlunWorkspacePaperLayoutTests passed."
           else
-            SIMULATOR_TEST_LINE="- iPad simulator tests: not run for this source change."
+            SIMULATOR_TEST_LINE="- iPad simulator model tests: not run for this source change."
+          fi
+          if [ "$RUN_SHENLUN_UI_TESTS" = "true" ]; then
+            UI_TEST_LINE="- iPad simulator interaction tests: paper pinch zoom, zoom control, doodle-to-paper geometry, and independent answer/review saves passed."
+            INTERACTION_LINE="- Physical iPad interaction remains to be confirmed, including Pencil input and split-window behavior. Simulator tests do not substitute for device acceptance."
+          else
+            UI_TEST_LINE="- iPad simulator interaction tests: not run for this source change."
+            INTERACTION_LINE="- Interactive acceptance remains to be confirmed on an iPad. See the implementation specifications for the relevant scenarios."
           fi
           RECORD_PATH="docs/native-rewrite/deliveries/${NATIVE_VERSION}.md"
           mkdir -p "$(dirname "$RECORD_PATH")"
@@ -803,7 +835,8 @@ jobs:
           - Local source check: git diff --check passed before the release push. The Windows host has no local Xcode toolchain; the GitHub workflow supplies the iOS archive.
           - Workflow checks: this workflow runs its fixed domain behavior check batch on every push; some checks cover areas outside this release's changes.
           ${SIMULATOR_TEST_LINE}
-          - Interactive acceptance: red-grid focus, completion-to-review, and retry history were not automated; physical iPad interaction remains to be confirmed. See the implementation specifications for the relevant scenarios.
+          ${UI_TEST_LINE}
+          ${INTERACTION_LINE}
 
           ## Implementation record
 

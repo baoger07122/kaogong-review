@@ -56,7 +56,19 @@ struct ShenlunWorkspaceView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .navigationDestination(for: ShenlunWorkspaceRoute.self, destination: destination(for:))
-        .task { reload() }
+        .task {
+            #if DEBUG
+            if ShenlunReaderUITestFixture.isEnabled {
+                do {
+                    try ShenlunReaderUITestFixture.seed(in: modelContext)
+                } catch {
+                    loadError = "模拟器申论交互数据准备失败：\(error.localizedDescription)"
+                    return
+                }
+            }
+            #endif
+            reload()
+        }
         .onChange(of: navigationPath) { oldPath, newPath in
             if newPath.count < oldPath.count { reload() }
         }
@@ -170,6 +182,7 @@ struct ShenlunWorkspaceView: View {
                         ShenlunSingleQuestionRow(question: row.question, history: row.history, minimumHeight: twoColumns ? 129 : 112)
                     }
                     .buttonStyle(NativePressButtonStyle())
+                    .accessibilityIdentifier("shenlun-practice-\(row.practice.id)")
                 }
             }
         }

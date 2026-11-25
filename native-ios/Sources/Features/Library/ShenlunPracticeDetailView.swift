@@ -333,6 +333,7 @@ struct ShenlunPracticeDetailView: View {
                     }
                     .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
                     .disabled(activeLayer?.isVisible != true || currentMaterial?.showAllLayers != true)
+                    .accessibilityIdentifier("shenlun-doodle-open")
                 } else if showsInlineDrawingTools {
                     drawingToolbar
                 }
@@ -519,6 +520,8 @@ struct ShenlunPracticeDetailView: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("shenlun-material-paper")
     }
 
     @ViewBuilder private var pageSurface: some View {
@@ -717,6 +720,7 @@ struct ShenlunPracticeDetailView: View {
             .frame(minHeight: 44)
             .background(AppTheme.accent, in: Capsule())
             .fixedSize(horizontal: true, vertical: false)
+            .accessibilityIdentifier("shenlun-complete-answer")
     }
 
     private func answerPaperSection(for question: ShenlunWorkspaceQuestion) -> some View {
@@ -857,6 +861,7 @@ struct ShenlunPracticeDetailView: View {
             if let onEdit {
                 grid.onTapGesture(perform: onEdit)
                     .accessibilityLabel("红格答题纸")
+                    .accessibilityIdentifier("shenlun-answer-grid")
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { onEdit() }
             } else {
@@ -950,6 +955,7 @@ struct ShenlunPracticeDetailView: View {
                         Rectangle().fill(selectedReviewSection == section ? AppTheme.accent : .clear).frame(height: 2)
                     }
                     .accessibilityAddTraits(selectedReviewSection == section ? .isSelected : [])
+                    .accessibilityIdentifier("shenlun-review-section-\(section.rawValue)")
                 }
             }
             .padding(.horizontal, 9)
@@ -1082,6 +1088,7 @@ struct ShenlunPracticeDetailView: View {
                     .font(.system(size: 15))
                     .lineLimit(3...10)
                     .accessibilityLabel("复盘心得")
+                .accessibilityIdentifier("shenlun-review-note")
             }
             HStack {
                 if reviewSaved, answer.doubts == reviewDraft.doubts, (answer.reviewNote ?? "") == reviewDraft.note {
@@ -1141,6 +1148,7 @@ struct ShenlunPracticeDetailView: View {
                 .keyboardType(.decimalPad)
                 .frame(width: 90)
                 .accessibilityLabel("本次得分")
+                .accessibilityIdentifier("shenlun-review-score")
             if let maximum = answer.fullScore(for: question) {
                 Text("/ \(maximum.formatted(.number.precision(.fractionLength(0...2)))) 分")
                     .foregroundStyle(.secondary)
