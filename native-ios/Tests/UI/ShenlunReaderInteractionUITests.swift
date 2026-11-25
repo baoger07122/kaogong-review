@@ -45,6 +45,7 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
         )
         XCTAssertEqual(XCTWaiter.wait(for: [canvasReady], timeout: 5), .completed)
         fingerDrawing.tap()
+        XCTAssertTrue(app.buttons["关闭手指涂鸦"].waitForExistence(timeout: 5))
 
         let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.48, dy: 0.38))
         let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.60, dy: 0.38))

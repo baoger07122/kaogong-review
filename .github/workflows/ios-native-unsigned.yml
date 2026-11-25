@@ -236,7 +236,8 @@ jobs:
             if ! git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
               'native-ios/Sources/Features/Library/Shenlun*.swift' \
               native-ios/Tests/Shenlun \
-              native-ios/Tests/ShenlunWorkspaceBehavior.swift; then
+              native-ios/Tests/ShenlunWorkspaceBehavior.swift \
+              native-ios/Tests/UI/ShenlunReaderInteractionUITests.swift; then
               RUN_SIMULATOR=true
               RUN_SHENLUN=true
             fi
