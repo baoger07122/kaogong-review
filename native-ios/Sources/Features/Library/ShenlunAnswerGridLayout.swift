@@ -14,13 +14,16 @@ struct ShenlunAnswerGridProjection: Equatable, Sendable {
     var cells: [ShenlunAnswerGridCell]
     var occupiedCount: Int
     var maximumCount: Int?
-    var showsUnboundedGrid = false
+    var isReview = false
 
     static let reserveCount = 100
-    var isGridEnabled: Bool { maximumCount != nil || showsUnboundedGrid }
+    var isGridEnabled: Bool { maximumCount != nil || isReview }
     var visibleCellCount: Int {
-        if let maximumCount { return min(maximumCount, Int.max - Self.reserveCount) + Self.reserveCount }
-        return showsUnboundedGrid ? (max(1, occupiedCount) - 1) / 25 * 25 + 25 : 0
+        if let maximumCount {
+            return isReview ? max(maximumCount, occupiedCount)
+                : min(maximumCount, Int.max - Self.reserveCount) + Self.reserveCount
+        }
+        return isReview ? (max(1, occupiedCount) - 1) / 25 * 25 + 25 : 0
     }
     var sheetCount: Int { visibleCellCount > 0 ? (visibleCellCount - 1) / 600 + 1 : 1 }
     var overflowCount: Int { isGridEnabled ? max(0, occupiedCount - visibleCellCount) : 0 }
@@ -53,13 +56,16 @@ struct ShenlunAnswerGridProjection: Equatable, Sendable {
 }
 
 enum ShenlunAnswerGridLayout {
-    static func project(answerText: String, maximumWordCount: Int?, showsUnboundedGrid: Bool = false) -> ShenlunAnswerGridProjection {
+    private static let numberingBoundaries = "。！？；：，、.!?;:,"
+
+    static func project(answerText: String, maximumWordCount: Int?, isReview: Bool = false) -> ShenlunAnswerGridProjection {
         let maximum = maximumWordCount.flatMap { $0 > 0 ? $0 : nil }
         var row = 0
         var column = 0
         var occupiedCount = 0
         var fullRowBreakPending = false
         var atParagraphStart = true
+        var canStartNumberedItem = true
         let characters = Array(answerText)
         var offset = 0
         var cells: [ShenlunAnswerGridCell] = []
@@ -70,6 +76,7 @@ enum ShenlunAnswerGridLayout {
             offset += 1
             if character.isNewline {
                 atParagraphStart = true
+                canStartNumberedItem = true
                 if column > 0 {
                     row += 1
                     column = 0
@@ -87,15 +94,23 @@ enum ShenlunAnswerGridLayout {
                let last = cells.indices.last,
                !cells[last].character.allSatisfy(\.isWhitespace), !cells[last].sharesCellWithFullStop {
                 cells[last].sharesCellWithFullStop = true
+                canStartNumberedItem = true
                 continue
             }
 
             var value = String(character)
-            if atParagraphStart, let end = numberingEnd(in: characters, after: offset, startingWith: character) {
+            let followsSpace = offset >= 2 && characters[offset - 2].isWhitespace
+            if canStartNumberedItem || followsSpace,
+               let end = numberingEnd(in: characters, after: offset, startingWith: character) {
                 value += String(characters[offset...end])
                 offset = end + 1
             }
-            if !character.isWhitespace { atParagraphStart = false }
+            if !character.isWhitespace {
+                atParagraphStart = false
+                let dotFollowsDigit = (character == "." || character == "．") &&
+                    offset >= 2 && isNumberingDigit(characters[offset - 2])
+                canStartNumberedItem = numberingBoundaries.contains(character) && !dotFollowsDigit
+            }
             let index = row * 25 + column + 1
             cells.append(ShenlunAnswerGridCell(index: index, character: value))
             occupiedCount = index
@@ -110,7 +125,7 @@ enum ShenlunAnswerGridLayout {
         }
 
         return ShenlunAnswerGridProjection(
-            cells: cells, occupiedCount: occupiedCount, maximumCount: maximum, showsUnboundedGrid: showsUnboundedGrid
+            cells: cells, occupiedCount: occupiedCount, maximumCount: maximum, isReview: isReview
         )
     }
 

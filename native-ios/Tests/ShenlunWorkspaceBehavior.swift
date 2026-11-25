@@ -44,7 +44,22 @@ enum ShenlunWorkspaceBehavior {
         precondition(numbering.cells[4].index == 27, "a manually entered ideographic space must remain in the grid")
         let stopAtEdge = ShenlunAnswerGridLayout.project(answerText: String(repeating: "字", count: 25) + "。后", maximumWordCount: 400)
         precondition(stopAtEdge.occupiedCount == 26 && stopAtEdge.cells[24].sharesCellWithFullStop)
-        let reviewGrid = ShenlunAnswerGridLayout.project(answerText: "答案。", maximumWordCount: nil, showsUnboundedGrid: true)
+        let inlineItems = ShenlunAnswerGridLayout.project(
+            answerText: "1.经营。2.质量。三、其他。 4.数值 1.5。 \n5.流程", maximumWordCount: 100
+        )
+        precondition(inlineItems.cells.map(\.character) == [
+            "1.", "经", "营", "。", "2.", "质", "量", "。", "三、", "其", "他", "。", " ", "4.", "数", "值",
+            " ", "1", ".", "5", " ", "5.", "流", "程"
+        ], "inline numbering should share a cell while decimal numbers keep their own characters")
+        for count in [255, 300, 301, 400, 501, 650] {
+            let review = ShenlunAnswerGridLayout.project(
+                answerText: String(repeating: "字", count: count), maximumWordCount: 300, isReview: true
+            )
+            precondition(review.visibleCellCount == max(300, count) && review.overflowCount == 0)
+            precondition((0..<review.sheetCount).flatMap { review.visibleCells(on: $0) }.count == count)
+            if count <= 300 { precondition(review.markers(on: 0, minimumWordCount: nil) == [100, 200, 300]) }
+        }
+        let reviewGrid = ShenlunAnswerGridLayout.project(answerText: "答案。", maximumWordCount: nil, isReview: true)
         precondition(reviewGrid.isGridEnabled && reviewGrid.gridCellCount(on: 0) == 25 && reviewGrid.overflowCount == 0)
 
         precondition(ShenlunPDFPageSelectionPolicy.parse("1-3,5,3", pageCount: 7) == [0, 1, 2, 4],

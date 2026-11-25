@@ -5,8 +5,8 @@ import SwiftUI
 import UIKit
 
 private enum ShenlunReviewSection: String, CaseIterable, Identifiable {
-    case review
     case answer
+    case review
     case history
     var id: String { rawValue }
     var title: String {
@@ -42,20 +42,25 @@ struct ShenlunPracticeDetailView: View {
     @State private var previousReviewAttemptID: String?
     @State private var reviewDraft = ShenlunWorkspaceReviewDraft()
     @State private var reviewSaved = false
+    @State private var scoreSaved = false
     @State private var showsHistoryFromAnswer = false
     @State private var showsBackfill = false
     @State private var backfillDate = Date.now
     @State private var backfillAnswer = ""
     @State private var selectedMaterialID: String?
     @State private var pageIndex = 0
-    @State private var zoom: CGFloat = 0.55
+    @State private var zoomFraction: CGFloat = 1
+    @State private var zoomRequest: ShenlunReaderZoomRequest?
+    @State private var zoomActivity = 0
+    @State private var showsZoomControl = false
+    @State private var showsZoomMenu = false
     @State private var answerText = ""
     @State private var referenceAnswerDraft = ""
     @State private var answerFocusRequest: UUID?
     @State private var readingFocusRequest: UUID?
     @State private var workFocusRequest: UUID?
     @State private var isEditingReferenceAnswer = false
-    @State private var selectedReviewSection: ShenlunReviewSection = .review
+    @State private var selectedReviewSection: ShenlunReviewSection = .answer
     @State private var isDoodling = false
     @State private var isClosingDoodle = false
     @State private var drawingData = ""
@@ -178,7 +183,7 @@ struct ShenlunPracticeDetailView: View {
         GeometryReader { proxy in
             let dualPane = proxy.size.width >= 680
             let available = max(0, proxy.size.width - 1)
-            let leftWidth = min(max(280, available * 0.55), max(280, available - 280))
+            let paneWidth = available / 2
             let movesDrawingToolsBelowBar = proxy.size.width < 580
             VStack(spacing: 0) {
                 if isDoodling && showsMaterialTools && movesDrawingToolsBelowBar {
@@ -189,16 +194,16 @@ struct ShenlunPracticeDetailView: View {
                 }
                 if dualPane {
                     HStack(spacing: 0) {
-                        leftPane.frame(width: leftWidth)
+                        leftPane.frame(width: paneWidth)
                         Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
-                        rightPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        rightPane.frame(width: paneWidth).frame(maxHeight: .infinity)
                     }
                 } else {
                     ScrollViewReader { scroll in
                         VStack(spacing: 0) {
                             HStack(spacing: 20) {
                                 Button("材料与要求") { scroll.scrollTo("shenlun-reading-pane", anchor: .top) }
-                                Button(reviewAnswer == nil ? "答题纸" : "复盘") { scroll.scrollTo("shenlun-answer-pane", anchor: .top) }
+                                Button(reviewAnswer == nil ? "答题纸" : "答案与复盘") { scroll.scrollTo("shenlun-answer-pane", anchor: .top) }
                             }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(AppTheme.accent)
@@ -206,7 +211,7 @@ struct ShenlunPracticeDetailView: View {
                             ScrollView {
                                 VStack(spacing: 12) {
                                     leftPane
-                                        .frame(minHeight: 390)
+                                        .frame(height: 390)
                                         .id("shenlun-reading-pane")
                                     rightPane
                                         .frame(minHeight: 540)
@@ -361,16 +366,90 @@ struct ShenlunPracticeDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             }
-            ScrollView([.horizontal, .vertical]) {
-                paperViewport
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 12)
-            }
+            materialZoomViewport
             .background(Color(red: 0.95, green: 0.96, blue: 0.97))
             leftPaperControls
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 0.95, green: 0.96, blue: 0.97))
+    }
+
+    private var materialZoomViewport: some View {
+        ShenlunMaterialZoomReader(
+            paper: paperViewport,
+            paperSize: paperSize,
+            pageID: drawingPageID,
+            isDrawing: isDoodling,
+            initialFraction: zoomFraction,
+            request: zoomRequest,
+            onInteraction: showReaderZoom
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityAction(named: Text("纸面缩放")) {
+            showsZoomControl = true
+            showsZoomMenu = true
+        }
+        .overlay(alignment: .topLeading) {
+            if showsZoomControl || showsZoomMenu {
+                readerZoomButton.padding(8)
+            }
+        }
+        .task(id: zoomActivity) {
+            guard showsZoomControl, !showsZoomMenu else { return }
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            if !showsZoomMenu { showsZoomControl = false }
+        }
+        .onChange(of: showsZoomMenu) { _, isOpen in
+            if !isOpen { zoomActivity += 1 }
+        }
+    }
+
+    private var readerZoomButton: some View {
+        Button {
+            showsZoomMenu = true
+        } label: {
+            Text("\(Int((zoomFraction * 100).rounded()))%")
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("纸面缩放")
+        .accessibilityValue("\(Int((zoomFraction * 100).rounded()))%")
+        .accessibilityIdentifier("shenlun-reader-zoom")
+        .popover(isPresented: $showsZoomMenu, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button("适应宽度") { selectReaderZoom(100) }
+                    .frame(minHeight: 44, alignment: .leading)
+                Divider()
+                ForEach([50, 75, 100, 125, 150, 200, 250, 300], id: \.self) { percentage in
+                    Button("\(percentage)%") { selectReaderZoom(percentage) }
+                        .frame(minHeight: 36, alignment: .leading)
+                }
+            }
+            .font(.system(size: 14))
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func showReaderZoom(_ fraction: CGFloat) {
+        guard fraction.isFinite else { return }
+        zoomRequest = nil
+        zoomFraction = min(3, max(0.5, fraction))
+        showsZoomControl = true
+        zoomActivity += 1
+    }
+
+    private func selectReaderZoom(_ percentage: Int) {
+        let fraction = CGFloat(percentage) / 100
+        showReaderZoom(fraction)
+        zoomRequest = ShenlunReaderZoomRequest(fraction: fraction)
+        showsZoomMenu = false
     }
 
     private var materialSelector: some View {
@@ -440,9 +519,6 @@ struct ShenlunPracticeDetailView: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .scaleEffect(zoom, anchor: .topLeading)
-        .frame(width: size.width * zoom, height: size.height * zoom, alignment: .topLeading)
-        .shadow(color: .black.opacity(0.10), radius: 7, y: 3)
     }
 
     @ViewBuilder private var pageSurface: some View {
@@ -488,14 +564,6 @@ struct ShenlunPracticeDetailView: View {
 
     private var leftPaperControls: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                Text("缩放").font(.system(size: 11)).foregroundStyle(.secondary)
-                Slider(value: $zoom, in: 0.45...1.2, step: 0.05)
-                    .accessibilityLabel("纸面缩放")
-                Text("\(Int(zoom * 100))%")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .frame(width: 40, alignment: .trailing)
-            }
             HStack(spacing: 12) {
                 Button { changePage(to: pageIndex - 1) } label: { Image(systemName: "chevron.left") }
                     .disabled(pageIndex <= 0)
@@ -728,7 +796,7 @@ struct ShenlunPracticeDetailView: View {
         let gridCells = projection.gridCellCount(on: sheet)
         return VStack(spacing: 8) {
             if let maximum = projection.maximumCount {
-                Text("题目上限 \(maximum) 字 · 备用 \(projection.visibleCellCount - maximum) 格")
+                Text(projection.isReview ? "题目上限 \(maximum) 字" : "题目上限 \(maximum) 字 · 备用 \(projection.visibleCellCount - maximum) 格")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -746,15 +814,11 @@ struct ShenlunPracticeDetailView: View {
                 let rows = projection.rowCount(on: sheet)
                 Canvas { context, _ in
                     let spacing = cell * 0.42
-                    let pageStart = sheet * 600
                     let cellsOnLastRow = gridCells % 25 == 0 ? 25 : gridCells % 25
                     for row in 0..<rows {
                         let rowCount = row == rows - 1 ? cellsOnLastRow : 25
                         for column in 0..<rowCount {
                             let rect = CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * (cell + spacing), width: cell - 1, height: cell - 1)
-                            if let maximum = projection.maximumCount, pageStart + row * 25 + column + 1 > maximum {
-                                context.fill(Path(rect), with: .color(AppTheme.accent.opacity(0.06)))
-                            }
                             context.stroke(Path(rect), with: .color(Color(red: 0.71, green: 0.50, blue: 0.51).opacity(0.68)), lineWidth: column == 24 ? 1.1 : 0.65)
                         }
                     }
@@ -762,15 +826,18 @@ struct ShenlunPracticeDetailView: View {
                         guard !item.character.allSatisfy(\.isWhitespace) else { continue }
                         let x = CGFloat(item.column) * cell
                         let y = CGFloat(item.row) * (cell + spacing)
-                        let point = CGPoint(x: x + cell * 0.1, y: y + cell * 0.02)
-                        let fontSize = item.character.count > 1
-                            ? min(cell * 0.65, cell * 0.84 / CGFloat(item.character.count))
-                            : cell * 0.72
-                        let text = Text(item.character).font(.system(size: fontSize, design: .serif)).foregroundColor(.primary)
-                        context.draw(text, at: point, anchor: .topLeading)
-                        if item.sharesCellWithFullStop {
-                            let fullStop = Text("。").font(.system(size: cell * 0.40, design: .serif)).foregroundColor(.primary)
-                            context.draw(fullStop, at: CGPoint(x: x + cell * 0.81, y: y + cell * 0.88), anchor: .bottomTrailing)
+                        let value = item.sharesCellWithFullStop ? item.character + "。" : item.character
+                        let text = Text(value).font(.system(size: cell * 0.72, weight: .regular, design: .serif)).foregroundColor(.primary)
+                        let center = CGPoint(x: x + (cell - 1) / 2, y: y + (cell - 1) / 2)
+                        if value.count == 1 {
+                            context.draw(text, at: center)
+                        } else {
+                            let resolved = context.resolve(text)
+                            let width = resolved.measure(in: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)).width
+                            var fitted = context
+                            fitted.translateBy(x: center.x, y: center.y)
+                            fitted.scaleBy(x: min(1, (cell - 2) / max(width, 1)), y: 1)
+                            fitted.draw(resolved, at: .zero)
                         }
                     }
                     for mark in projection.markers(on: sheet, minimumWordCount: minimumWordCount) {
@@ -853,13 +920,9 @@ struct ShenlunPracticeDetailView: View {
     private func completedReview(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(scoreDescription(answer, question: question))
-                        .font(.system(size: 14, weight: .semibold))
-                    if let date = answer.completedAt {
-                        Text(date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
+                if let date = answer.completedAt {
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 Button(hasAnswerDraft ? "继续第 \(currentHistory?.nextNumber ?? 1) 次作答" : "再做一次", action: resumeAnswer)
@@ -894,13 +957,9 @@ struct ShenlunPracticeDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if answer.reviewState == .needsReview {
-                        Label("题目或参考内容已修改，原评分需复核。", systemImage: "exclamationmark.triangle")
-                            .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.warning)
-                    }
                     switch selectedReviewSection {
                     case .review:
-                        localReviewSection(for: question, answer: answer)
+                        localReviewSection(answer: answer)
                     case .answer:
                         comparisonSection(for: question, answer: answer)
                     case .history:
@@ -915,6 +974,7 @@ struct ShenlunPracticeDetailView: View {
 
     private func comparisonSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            scoreSection(for: question, answer: answer)
             reviewCard("我的作答") {
                 if answer.answerText.isEmpty {
                     Text("这次补录没有作答原文。").font(.system(size: 15)).foregroundStyle(.secondary)
@@ -928,7 +988,7 @@ struct ShenlunPracticeDetailView: View {
                         let projection = ShenlunAnswerGridLayout.project(
                             answerText: answer.answerText,
                             maximumWordCount: question.maximumWordCount,
-                            showsUnboundedGrid: true
+                            isReview: true
                         )
                         gridCount(projection)
                         answerGridPaper(projection, minimumWordCount: question.minimumWordCount)
@@ -977,7 +1037,7 @@ struct ShenlunPracticeDetailView: View {
         }
     }
 
-    private func localReviewSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
+    private func localReviewSection(answer: ShenlunWorkspaceAnswer) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             reviewCard("疑惑") {
                 Button(action: openDoubtEditor) {
@@ -1016,27 +1076,6 @@ struct ShenlunPracticeDetailView: View {
                     .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
-            reviewCard("本次得分") {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        scoreField(for: question, answer: answer)
-                        scoreSourcePicker
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        scoreField(for: question, answer: answer)
-                        scoreSourcePicker
-                    }
-                }
-                if let analysis = answer.confirmedAnalysis, !analysis.isEmpty {
-                    Text(analysis).font(.system(size: 13)).textSelection(.enabled)
-                }
-                if answer.reviewState == .needsReview {
-                    Button("确认本次评分") { saveReview(confirmExistingScore: true) }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(minHeight: 44)
-                }
-            }
             reviewCard("复盘心得") {
                 TextField("这次漏了什么？下次准备怎么改？", text: $reviewDraft.note, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -1045,7 +1084,7 @@ struct ShenlunPracticeDetailView: View {
                     .accessibilityLabel("复盘心得")
             }
             HStack {
-                if reviewSaved && answer.savedReview == reviewDraft {
+                if reviewSaved, answer.doubts == reviewDraft.doubts, (answer.reviewNote ?? "") == reviewDraft.note {
                     Label("已保存", systemImage: "checkmark.circle")
                         .font(.system(size: 12)).foregroundStyle(AppTheme.success)
                 }
@@ -1056,6 +1095,41 @@ struct ShenlunPracticeDetailView: View {
                     .padding(.horizontal, 16)
                     .frame(minHeight: 44)
                     .background(AppTheme.accent, in: Capsule())
+            }
+        }
+    }
+
+    private func scoreSection(for question: ShenlunWorkspaceQuestion, answer: ShenlunWorkspaceAnswer) -> some View {
+        reviewCard("本次得分") {
+            if answer.reviewState == .needsReview {
+                Label("题目或参考内容已修改，原评分需复核。", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(AppTheme.warning)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    scoreField(for: question, answer: answer)
+                    scoreSourcePicker
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    scoreField(for: question, answer: answer)
+                    scoreSourcePicker
+                }
+            }
+            HStack {
+                if scoreSaved,
+                   answer.savedReview.scoreText == reviewDraft.scoreText,
+                   answer.savedReview.scoreSource == reviewDraft.scoreSource {
+                    Label("已保存", systemImage: "checkmark.circle")
+                        .font(.system(size: 12)).foregroundStyle(AppTheme.success)
+                }
+                Spacer()
+                Button(answer.reviewState == .needsReview ? "确认本次评分" : "保存成绩") { saveScore() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minHeight: 44)
+            }
+            if let analysis = answer.confirmedAnalysis, !analysis.isEmpty {
+                Text(analysis).font(.system(size: 13)).textSelection(.enabled)
             }
         }
     }
@@ -1492,7 +1566,8 @@ struct ShenlunPracticeDetailView: View {
             reviewAttemptID = nil
             reviewDraft = .init()
             reviewSaved = false
-            selectedReviewSection = .review
+            scoreSaved = false
+            selectedReviewSection = .answer
         }
     }
 
@@ -1502,8 +1577,9 @@ struct ShenlunPracticeDetailView: View {
         reviewAttemptID = answer.id
         reviewDraft = answer.reviewDraft ?? answer.savedReview
         reviewSaved = false
+        scoreSaved = false
         showsHistoryFromAnswer = false
-        selectedReviewSection = .review
+        selectedReviewSection = .answer
     }
 
     private func openReview(_ id: String) {
@@ -1526,6 +1602,7 @@ struct ShenlunPracticeDetailView: View {
         reviewAttemptID = nil
         reviewDraft = .init()
         reviewSaved = false
+        scoreSaved = false
         answerText = currentHistory?.draft?.answerText ?? ""
         answerFocusRequest = nil
         answerPaperIndex = 0
@@ -1606,7 +1683,7 @@ struct ShenlunPracticeDetailView: View {
         return writeAttempt(updated, replacing: answer, failure: "复盘草稿保存失败")
     }
 
-    private func saveReview(confirmExistingScore: Bool = false) {
+    private func saveScore() {
         guard let answer = reviewAnswer, let question = currentQuestion else { return }
         finishKeyboardInput()
         let score: Double?
@@ -1624,16 +1701,29 @@ struct ShenlunPracticeDetailView: View {
         }
         updated.confirmedScore = score
         updated.scoreSource = score == nil ? nil : reviewDraft.scoreSource
-        if let score, confirmExistingScore || answer.reviewState != .needsReview || score != answer.confirmedScore {
+        if score != nil {
             updated.reviewState = .confirmed
         } else if score == nil && (answer.reviewState == .confirmed || answer.reviewState == .needsReview) {
             updated.reviewState = .notReviewed
         }
+        var draft = reviewDraft
+        draft.scoreText = updated.savedReview.scoreText
+        draft.scoreSource = updated.savedReview.scoreSource
+        updated.reviewDraft = draft == updated.savedReview ? nil : draft
+        guard writeAttempt(updated, replacing: answer, failure: "成绩保存失败") else { return }
+        reviewDraft = draft
+        scoreSaved = true
+        onPracticeChanged()
+    }
+
+    private func saveReview() {
+        guard let answer = reviewAnswer else { return }
+        finishKeyboardInput()
+        var updated = answer
         updated.reviewNote = reviewDraft.note
         updated.doubts = reviewDraft.doubts
-        updated.reviewDraft = nil
+        updated.reviewDraft = reviewDraft == updated.savedReview ? nil : reviewDraft
         guard writeAttempt(updated, replacing: answer, failure: "复盘保存失败") else { return }
-        reviewDraft = updated.savedReview
         reviewSaved = true
         onPracticeChanged()
     }
@@ -1676,6 +1766,7 @@ struct ShenlunPracticeDetailView: View {
             isEditingReferenceAnswer = false
             histories = try ShenlunWorkspaceRepository.attemptHistories(practiceID: practice.id, in: modelContext)
             reviewSaved = false
+            scoreSaved = false
             onPracticeChanged()
             return true
         } catch {
