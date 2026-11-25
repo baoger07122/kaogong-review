@@ -25,3 +25,4 @@
 - Xcode 报告 `ShenlunPracticeDetailView.swift` 的 `.greatestFiniteMagnitude` 类型歧义，已显式指定 `CGFloat.greatestFiniteMagnitude`。
 - UI 测试夹具的 `ShenlunWorkspaceQuestion` 初始化参数顺序不符，已将 `type` 放到 `title` 前。
 - 修正后的发布提交会重新运行这批必要检查和 iPad 设备目标归档；初次失败不视为构建或交付成功。
+- 第二次 run `45537141206` 的编译与申论模型 XCTest 通过；两项 UI 测试中，答案/复盘独立保存通过，缩放用例因未先从列表进入夹具题详情而找不到阅读器。测试现已补上进入题目详情的步骤；该 run 未归档或上传。

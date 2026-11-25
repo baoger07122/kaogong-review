@@ -5,6 +5,9 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
     func testPinchZoomKeepsAnnotationCanvasAlignedWithPaper() throws {
         let sessionID = UUID().uuidString
         let app = launchShenlunFixture(sessionID: sessionID)
+        let practice = element(app, identifier: "shenlun-practice-ui-test-\(sessionID)-practice")
+        XCTAssertTrue(practice.waitForExistence(timeout: 15))
+        practice.tap()
 
         let reader = element(app, identifier: "shenlun-material-reader")
         XCTAssertTrue(reader.waitForExistence(timeout: 15))
