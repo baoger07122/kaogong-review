@@ -15,14 +15,10 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
         reader.pinch(withScale: 1.5, velocity: 1)
 
         XCTAssertTrue(zoom.waitForExistence(timeout: 5), "Pinching should reveal the zoom control")
-        let zoomChanged = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value != %@", "100%"),
-            object: zoom
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [zoomChanged], timeout: 5), .completed)
-        let pinchedZoom = Int((zoom.value as? String ?? "100%").replacingOccurrences(of: "%", with: "")) ?? 100
-        XCTAssertNotEqual(pinchedZoom, 100, "Pinching should update the displayed zoom percentage")
-        zoom.tap()
+        let pinchedZoom = zoom.value as? String
+        XCTAssertNotNil(pinchedZoom)
+        XCTAssertNotEqual(pinchedZoom, "100%", "Pinching should update the displayed zoom percentage")
+        reader.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.05)).tap()
         let twoHundredPercent = app.buttons["200%"].firstMatch
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
         twoHundredPercent.tap()
