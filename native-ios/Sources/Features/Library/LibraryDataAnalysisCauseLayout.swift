@@ -1,6 +1,9 @@
 import Foundation
 
 enum LibraryDataAnalysisCauseLayout {
+    static let legacyTrapKeys = ["pitfall", "misconception", "thinkingTrap", "centerComprehensionTrap"]
+    static let causeKeys = ["errorCause", "cause", "reason"]
+
     static func usesTextCause(subject: String, module: String) -> Bool {
         subject == "资料分析" || (subject == "言语理解" && module == "逻辑填空")
     }
@@ -8,11 +11,7 @@ enum LibraryDataAnalysisCauseLayout {
     static func values(in object: [String: Any]) -> [String] {
         // An explicitly present canonical field wins even when empty; legacy
         // aliases are only consulted when the canonical key is absent.
-        if let canonical = object["errorCause"] { return splitLines(canonical) }
-        for key in ["cause", "reason"] {
-            if let legacy = object[key] { return splitLines(legacy) }
-        }
-        return []
+        mergingTrapLines(into: splitLines(object[storageKey(in: object)]), from: object)
     }
 
     static func storageKey(in object: [String: Any]) -> String {
@@ -33,6 +32,20 @@ enum LibraryDataAnalysisCauseLayout {
 
     static func rawCause(in object: [String: Any]) -> String {
         values(in: object).joined(separator: "\n")
+    }
+
+    static func mergingTrapLines(into causes: [String], from object: [String: Any]) -> [String] {
+        var seen = Set(causes)
+        return causes + legacyTrapKeys.flatMap { splitLines(object[$0]) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    static func store(_ value: String, in object: inout [String: Any], isQuantity: Bool) {
+        let key = isQuantity ? "errorCause" : storageKey(in: object)
+        object[key] = isQuantity || object[key] is [String] ? splitLines(value) as Any : value
+        for obsoleteKey in legacyTrapKeys + causeKeys where obsoleteKey != key {
+            object.removeValue(forKey: obsoleteKey)
+        }
     }
 
     static func estimatedTagLineHeight(label: String, values: [String], width: CGFloat) -> CGFloat {

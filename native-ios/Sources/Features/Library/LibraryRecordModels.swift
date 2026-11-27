@@ -297,9 +297,7 @@ struct LibraryRecordSnapshot: Identifiable {
     var cardTopTagLabels: [String] { cardTopTags.map(\.text) }
     let errorCause: String
     let quantityErrorCauses: [String]
-    let dataAnalysisErrorCause: String
     let dataAnalysisMaterialText: String
-    let pitfall: String
     let reminder: String
     let options: [String]
     let dataAnalysisOptionRows: [String]
@@ -431,10 +429,7 @@ struct LibraryRecordSnapshot: Identifiable {
             : record.collection == "errors"
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: object)
                 : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
-        dataAnalysisErrorCause = LibraryDataAnalysisCauseLayout.rawCause(in: object)
         dataAnalysisMaterialText = Self.firstText(in: object, keys: ["dataAnalysisMaterialText"])
-            .map(Self.plainText) ?? ""
-        pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
             .map(Self.plainText) ?? ""
         reminder = Self.firstText(in: object, keys: ["reminder"])
             .map(Self.plainText) ?? ""
@@ -533,9 +528,9 @@ struct LibraryRecordSnapshot: Identifiable {
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
         var searchValues = record.collection == "words"
             ? [title, wordSearchBody]
-            : [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
-        if subject == "言语理解", module == "逻辑填空" {
-            searchValues.append(dataAnalysisErrorCause)
+            : [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, reminder]
+        if record.collection == "errors" {
+            searchValues.append(errorCause)
         }
         searchValues.append(contentsOf: tags)
         if record.collection == "errors", subject == "数量关系" {

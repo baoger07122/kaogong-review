@@ -522,11 +522,7 @@ private struct LibraryErrorRecordCard: View {
                     ? snapshot.quantityErrorCauses
                     : LibraryDataAnalysisCauseLayout.splitLines(snapshot.errorCause)
                 if !causes.isEmpty {
-                    sentenceTagLine(label: errorCauseLabel, values: causes)
-                }
-
-                if !isLogicFill, !snapshot.pitfall.isEmpty {
-                    pitfallLine(value: snapshot.pitfall, label: isDataAnalysis ? "陷阱" : "误区")
+                    sentenceTagLine(label: "错因", values: causes)
                 }
 
                 if !snapshot.reminder.isEmpty {
@@ -661,25 +657,6 @@ private struct LibraryErrorRecordCard: View {
             .filter { !$0.isEmpty }
     }
 
-    private func pitfallLine(value: String, label: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text("\(label)：")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isDataAnalysis
-                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
-                    : Color.primary)
-                .fixedSize(horizontal: true, vertical: false)
-            Text(value)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(isDataAnalysis
-                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
-                    : Color(red: 0.38, green: 0.18, blue: 0.53))
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(1.5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     private func plainField(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
@@ -690,10 +667,6 @@ private struct LibraryErrorRecordCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(size == .small ? 2 : 3)
         }
-    }
-
-    private var isLogicJudgment: Bool {
-        snapshot.record.subject == "判断推理" && snapshot.record.module == "逻辑判断"
     }
 
     private var isAnalogyReasoning: Bool {
@@ -746,7 +719,6 @@ private struct LibraryErrorRecordCard: View {
             .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
-    private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
     private var isLogicFill: Bool {
         snapshot.record.subject == "言语理解" && snapshot.record.module == "逻辑填空"
     }
@@ -795,11 +767,6 @@ private struct LibraryErrorRecordCard: View {
         return module.isEmpty ? "未分类" : module
     }
 
-    private var errorCauseLabel: String {
-        if isLogicJudgment { return "选项" }
-        if isAnalogyReasoning { return "二级辨析" }
-        return "错因"
-    }
 }
 
 private struct LibraryLogicComparisonSeparator: View {
@@ -1370,7 +1337,6 @@ struct LibraryMasonryGrid: View {
         }
         let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
             && SubjectModuleTitle.normalized(record.module) == "综合题"
-        let isDataAnalysis = SubjectModuleTitle.normalized(record.subject) == "资料分析"
         let isLogicFill = SubjectModuleTitle.normalized(record.subject) == "言语理解"
             && SubjectModuleTitle.normalized(record.module) == "逻辑填空"
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
@@ -1433,14 +1399,10 @@ struct LibraryMasonryGrid: View {
                 ? record.quantityErrorCauses
                 : LibraryDataAnalysisCauseLayout.splitLines(record.errorCause)
             if !causes.isEmpty {
-                let causeLabel = isAnalogyReasoning ? "二级辨析" : "错因"
                 metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
-                    label: causeLabel, values: causes, width: contentWidth
+                    label: "错因", values: causes, width: contentWidth
                 ))
             }
-        }
-        if !isLogicFill, !record.pitfall.isEmpty {
-            metadataRows.append(estimatedFieldHeight((isDataAnalysis ? "陷阱：" : "误区：") + record.pitfall, width: contentWidth, fontSize: 11))
         }
         if !record.reminder.isEmpty {
             metadataRows.append(estimatedFieldHeight("提醒：" + record.reminder, width: contentWidth, fontSize: 11))

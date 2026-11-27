@@ -5,7 +5,6 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
     case knowledgePoint = "考点"
     case mistakeTag = "错因标签"
     case errorCause = "错因"
-    case thinkingTrap = "思维误区"
 
     static let primaryCases: [ManagedTagKind] = [.knowledgePoint, .mistakeTag]
 
@@ -13,7 +12,7 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
         switch self {
         case .knowledgePoint: .knowledgePoint
         case .mistakeTag: .mistakeTag
-        case .errorCause, .thinkingTrap: nil
+        case .errorCause: nil
         }
     }
 
@@ -23,7 +22,6 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
         case .knowledgePoint: "kp_library"
         case .mistakeTag: LibraryMistakeTagRepository.recordID
         case .errorCause: "kp_ec_library"
-        case .thinkingTrap: "kp_trap_library"
         }
     }
 }
@@ -48,6 +46,10 @@ struct LibraryTagMutationResult: Equatable {
 }
 
 enum TagLibraryRepository {
+    static let sharedQuantityCauseModule = "数量关系"
+    private static let legacyTrapLibraryID = "kp_trap_library"
+    private static let mergedTrapLibraryKey = "mergedThinkingTrapLibrary"
+
     static func tags(kind: ManagedTagKind, module: String, records: [StoredRecord]) -> [String] {
         let library = load(kind: kind, records: records)
         return library[module] ?? []
@@ -292,20 +294,37 @@ enum TagLibraryRepository {
     }
 
     private static func load(kind: ManagedTagKind, records: [StoredRecord]) -> [String: [String]] {
-        guard
-            let object = records.first(where: { $0.collection == "keyvalue" && $0.recordID == kind.recordID })?.jsonObject,
-            let raw = object["value"] as? [String: Any]
-        else { return [:] }
-        return raw.reduce(into: [:]) { result, entry in
-            result[entry.key] = (entry.value as? [String]) ?? (entry.value as? [Any])?.compactMap { $0 as? String } ?? []
+        let object = libraryObject(kind.recordID, records: records)
+        var library = libraryValues(object)
+        if kind == .errorCause, object?[mergedTrapLibraryKey] as? Bool != true {
+            let legacy = libraryValues(libraryObject(legacyTrapLibraryID, records: records))
+            for (module, names) in legacy {
+                let scope = module == "数量关系-弱项" ? sharedQuantityCauseModule : module
+                var seen = Set(library[scope] ?? [])
+                library[scope, default: []].append(contentsOf: names.filter { seen.insert($0).inserted })
+            }
         }
+        return library
+    }
+
+    private static func libraryObject(_ recordID: String, records: [StoredRecord]) -> [String: Any]? {
+        records.first { $0.collection == "keyvalue" && $0.recordID == recordID }?.jsonObject
+    }
+
+    private static func libraryValues(_ object: [String: Any]?) -> [String: [String]] {
+        let raw = object?["value"] as? [String: Any] ?? [:]
+        return raw.mapValues { ($0 as? [Any])?.compactMap { $0 as? String } ?? [] }
     }
 
     private static func save(
         _ library: [String: [String]], kind: ManagedTagKind,
         records: [StoredRecord], context: ModelContext, persist: Bool = true
     ) throws {
-        let object: [String: Any] = ["key": kind.recordID, "value": library]
+        var object: [String: Any] = ["key": kind.recordID, "value": library]
+        if kind == .errorCause {
+            object[mergedTrapLibraryKey] = libraryObject(kind.recordID, records: records)?[mergedTrapLibraryKey] as? Bool == true
+                || libraryObject(legacyTrapLibraryID, records: records) != nil
+        }
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == kind.recordID }) {
             record.replacePayload(payload)
@@ -353,7 +372,7 @@ enum TagLibraryRepository {
                 && objectSubject == "言语理解"
                 && subject == "言语理解"
             let matchesModule = record.module == module
-                || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
+                || (kind == .errorCause && module == sharedQuantityCauseModule && objectSubject == "数量关系")
             let hasSourceReference = isVerbalErrorKnowledgePoint
                 && (record.jsonObject?["knowledgePointRefs"] as? [[String: Any]] ?? []).contains {
                     ($0["module"] as? String) == module
@@ -425,39 +444,25 @@ enum TagLibraryRepository {
                         changed = true
                     }
                 }
-            } else if kind == .errorCause {
-                if record.subject == "数量关系" {
-                    let values = LibraryQuantityErrorCauseCompatibility.values(
-                        errorCause: object["errorCause"],
-                        weaknessTags: nil,
-                        authoritative: true
-                    )
-                    if values.contains(oldName) {
-                        let updatedValues = replacing(oldName, with: newName, in: values)
-                        object["errorCause"] = updatedValues
+            } else if kind == .errorCause, record.collection == "errors" {
+                let isQuantity = objectSubject == "数量关系"
+                let values = isQuantity ? LibraryQuantityErrorCauseCompatibility.values(in: object)
+                    : LibraryDataAnalysisCauseLayout.values(in: object)
+                if values.contains(oldName) {
+                    let updated = replacing(oldName, with: newName, in: values).joined(separator: "\n")
+                    LibraryDataAnalysisCauseLayout.store(updated, in: &object, isQuantity: isQuantity)
+                    if isQuantity {
                         LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
-                        changed = true
                     }
-                } else if record.subject == "资料分析" {
-                    let lines = LibraryDataAnalysisCauseLayout.splitLines(object["errorCause"])
-                    if lines.contains(oldName) {
-                        object["errorCause"] = replacing(oldName, with: newName, in: lines).joined(separator: "\n")
-                        changed = true
-                    }
-                } else if let value = object["errorCause"] as? String,
+                    changed = true
+                } else if !isQuantity,
+                          !LibraryDataAnalysisCauseLayout.usesTextCause(subject: objectSubject, module: record.module ?? ""),
+                          let value = object["errorCause"] as? String,
+                          !value.contains(where: \.isNewline),
                           let updated = replacing(oldName, with: newName, in: value, separator: "、") {
                     object["errorCause"] = updated
                     changed = true
                 }
-            } else if kind == .thinkingTrap, module == "数量关系-弱项" {
-                if var values = object["weaknessTags"] as? [String], values.contains(oldName) {
-                    values = replacing(oldName, with: newName, in: values)
-                    object["weaknessTags"] = values
-                    changed = true
-                }
-            } else if kind == .thinkingTrap, object["pitfall"] as? String == oldName {
-                object["pitfall"] = newName ?? ""
-                changed = true
             }
             if changed {
                 let afterPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

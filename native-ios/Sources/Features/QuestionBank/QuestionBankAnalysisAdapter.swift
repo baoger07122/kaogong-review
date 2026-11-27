@@ -168,7 +168,10 @@ struct QuestionBankQuestionAnalysisContext {
     }
 
     var detailObject: [String: Any] {
-        let question = currentQuestion
+        detailObject(using: currentQuestion)
+    }
+
+    private func detailObject(using question: QuestionBankQuestion) -> [String: Any] {
         var object = rawObject
         object["question"] = question.stem
         object["options"] = question.options.map(\.text)
@@ -224,8 +227,10 @@ struct QuestionBankQuestionAnalysisContext {
         draft.optionImages = question.options.map(\.imageAssetID)
         draft.correctOption = displayOptionLetter(for: question.answer)
         draft.userOption = selectedOptionID.map { displayOptionLetter(for: $0) } ?? ""
-        draft.errorCause = question.errorCause ?? ""
-        draft.pitfall = question.pitfall ?? ""
+        let object = detailObject(using: question)
+        draft.errorCause = mapping.subject == "数量关系"
+            ? LibraryQuantityErrorCauseCompatibility.values(in: object).joined(separator: "\n")
+            : LibraryDataAnalysisCauseLayout.rawCause(in: object)
         draft.quantityStructure = question.quantityStructure ?? ""
         draft.graphRule = question.graphRule ?? ""
         draft.recognition = question.recognition ?? ""

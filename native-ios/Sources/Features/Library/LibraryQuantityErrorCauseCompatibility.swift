@@ -9,13 +9,14 @@ enum LibraryQuantityErrorCauseCompatibility {
 
     static func values(in object: [String: Any]) -> [String] {
         let authoritative = isAuthoritative(in: object)
-        return values(
+        let causes = values(
             errorCause: authoritative
                 ? [object["errorCause"]]
                 : [object["errorCause"], object["cause"], object["reason"]],
             weaknessTags: object["weaknessTags"],
             authoritative: authoritative
         )
+        return LibraryDataAnalysisCauseLayout.mergingTrapLines(into: causes, from: object)
     }
 
     static func values(errorCause: Any?, weaknessTags: Any?, authoritative: Bool) -> [String] {
@@ -25,12 +26,6 @@ enum LibraryQuantityErrorCauseCompatibility {
     static func serialized(errorCause: Any?, weaknessTags: Any?, authoritative: Bool) -> String {
         values(errorCause: errorCause, weaknessTags: weaknessTags, authoritative: authoritative)
             .joined(separator: "\n")
-    }
-
-    static func lines(from value: String) -> [String] {
-        value.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     static func markAuthoritative(in object: inout [String: Any]) {

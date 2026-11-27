@@ -114,7 +114,8 @@ struct KnowledgePointManagerView: View {
         return verbalTypes.first(where: { $0.id == verbalTypeSelection })?.name ?? "旧考点"
     }
     private var scopeTitle: String {
-        isTypedCatalogTag ? "\(module) · \(selectedVerbalTypeName)" : "\(module) · \(kind.rawValue)"
+        let scope = module == TagLibraryRepository.sharedQuantityCauseModule ? "数量关系通用" : module
+        return isTypedCatalogTag ? "\(scope) · \(selectedVerbalTypeName)" : "\(scope) · \(kind.rawValue)"
     }
     private var tags: [String] {
         if kind == .mistakeTag {
@@ -136,7 +137,13 @@ struct KnowledgePointManagerView: View {
         )
     }
     private var availableModules: [String] {
-        subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
+        modules(for: subject)
+    }
+
+    private func modules(for subject: SubjectDefinition) -> [String] {
+        guard subject.name == "数量关系" else { return subject.modules }
+        let types = QuantityQuestionTypeRepository.types(records: records)
+        return kind == .errorCause ? [TagLibraryRepository.sharedQuantityCauseModule] + types : types
     }
 
     private var supportsTagDisplaySettings: Bool {
@@ -203,7 +210,7 @@ struct KnowledgePointManagerView: View {
                     .pickerStyle(.segmented)
                 } else {
                     HStack {
-                        Text(kind == .errorCause ? "错因说明词库" : "思维误区")
+                        Text("错因说明词库")
                             .font(AppTheme.sectionTitleFont)
                         Spacer()
                         Button("返回标签管理") { kind = .knowledgePoint }
@@ -399,7 +406,6 @@ struct KnowledgePointManagerView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("错因说明词库") { kind = .errorCause }
-                    Button("思维误区") { kind = .thinkingTrap }
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 36, height: 36)
@@ -511,7 +517,11 @@ struct KnowledgePointManagerView: View {
         .onChange(of: subject.name) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: module) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: selectedVerbalTypeID) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
-        .onChange(of: kind) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
+        .onChange(of: kind) { _, _ in
+            if !availableModules.contains(module) { module = availableModules.first ?? "" }
+            moveTypeChangedScope()
+            selectDefaultGroupIfNeeded()
+        }
         .onChange(of: verbalTypes.map(\.id)) { _, _ in
             if isTypedCatalogTag,
                !verbalTypes.contains(where: { $0.id == verbalTypeSelection }),
@@ -526,9 +536,7 @@ struct KnowledgePointManagerView: View {
             ForEach(SubjectDefinition.all) { value in
                 Button(value.name) {
                     subject = value
-                    module = value.name == "数量关系"
-                        ? (QuantityQuestionTypeRepository.types(records: records).first ?? "")
-                        : (value.modules.first ?? "")
+                    module = modules(for: value).first ?? ""
                     resetVerbalTypeSelection()
                 }
             }
@@ -538,14 +546,18 @@ struct KnowledgePointManagerView: View {
     private var moduleSelector: some View {
         Menu {
             ForEach(availableModules, id: \.self) { value in
-                Button(value) {
+                Button(moduleDisplayName(value)) {
                     module = value
                     resetVerbalTypeSelection()
                 }
             }
         } label: {
-            selector(title: subject.name == "数量关系" ? "题型" : "模块", value: module)
+            selector(title: subject.name == "数量关系" ? "题型" : "模块", value: moduleDisplayName(module))
         }
+    }
+
+    private func moduleDisplayName(_ module: String) -> String {
+        module == TagLibraryRepository.sharedQuantityCauseModule ? "通用" : module
     }
 
     private var verbalTypeSelector: some View {

@@ -19,6 +19,24 @@ enum LibraryDataAnalysisCauseLayoutBehavior {
             "an explicit empty canonical errorCause suppresses legacy aliases"
         )
 
+        var legacyTrap: [String: Any] = [
+            "cause": ["漏读限定条件", "忽略上下文"],
+            "pitfall": "忽略上下文\n想当然，替换了判断条件",
+            "misconception": ["把相关当因果"],
+            "thinkingTrap": "默认所有条件都成立",
+            "centerComprehensionTrap": "把例子当主旨"
+        ]
+        precondition(
+            LibraryDataAnalysisCauseLayout.values(in: legacyTrap)
+                == ["漏读限定条件", "忽略上下文", "想当然，替换了判断条件", "把相关当因果", "默认所有条件都成立", "把例子当主旨"],
+            "appends all old fields in order and preserves punctuation and unique lines"
+        )
+        precondition(LibraryDataAnalysisCauseLayout.rawCause(in: ["pitfall": "只记录了误区"]) == "只记录了误区")
+        LibraryDataAnalysisCauseLayout.store("漏读限定条件", in: &legacyTrap, isQuantity: false)
+        precondition(legacyTrap["cause"] as? [String] == ["漏读限定条件"])
+        precondition(LibraryDataAnalysisCauseLayout.values(in: legacyTrap) == ["漏读限定条件"], "removed causes stay removed")
+        precondition(LibraryDataAnalysisCauseLayout.legacyTrapKeys.allSatisfy { legacyTrap[$0] == nil })
+
         let wideLine = LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
             label: "错因", values: causes, width: 300
         )

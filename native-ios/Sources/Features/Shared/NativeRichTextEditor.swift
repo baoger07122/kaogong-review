@@ -5562,12 +5562,11 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
             var columnOrigins: [CGFloat] = [0]
             for columnWidth in layout.columnWidths { columnOrigins.append((columnOrigins.last ?? 0) + columnWidth) }
             if libraryStyle {
-                context.cgContext.setStrokeColor(UIColor(red: 229.0 / 255.0, green: 229.0 / 255.0, blue: 234.0 / 255.0, alpha: 1).cgColor)
-                context.cgContext.setLineWidth(1 / UIScreen.main.scale)
+                context.cgContext.setFillColor(
+                    UIColor(red: 150.0 / 255.0, green: 150.0 / 255.0, blue: 156.0 / 255.0, alpha: 1).cgColor
+                )
                 for y in rowOrigins.dropFirst().dropLast() {
-                    let alignedY = y + 0.5 / UIScreen.main.scale
-                    context.cgContext.move(to: CGPoint(x: 0, y: alignedY))
-                    context.cgContext.addLine(to: CGPoint(x: width, y: alignedY))
+                    context.cgContext.fill(CGRect(x: 0, y: y, width: width, height: 1))
                 }
             } else {
                 UIColor.separator.setStroke()
@@ -5578,8 +5577,8 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
                 for x in columnOrigins {
                     context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: height))
                 }
+                context.cgContext.strokePath()
             }
-            context.cgContext.strokePath()
             for (rowIndex, row) in table.cells.enumerated() {
                 for (columnIndex, _) in row.enumerated() {
                     guard columnIndex < layout.columnWidths.count, rowIndex < layout.rowHeights.count else { continue }

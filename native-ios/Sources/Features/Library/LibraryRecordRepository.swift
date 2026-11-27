@@ -51,7 +51,6 @@ struct LibraryRecordDraft {
     var mistakeTagRefs: [LibraryKnowledgePointReference] = []
     var errorCause = ""
     var errorTypeID: String?
-    var centerComprehensionTrap = ""
     var status = "未掌握"
     var isDifficult = false
     var needsReview = false
@@ -60,7 +59,6 @@ struct LibraryRecordDraft {
     var optionImageIDs = [UUID().uuidString, UUID().uuidString, UUID().uuidString, UUID().uuidString]
     var correctOption = ""
     var userOption = ""
-    var pitfall = ""
     var reminder = ""
     var quantityStructure = ""
     var weaknessTags = ""
@@ -182,7 +180,6 @@ struct LibraryRecordDraft {
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
         errorTypeID = kind == .errors && LibraryErrorTypeSubject(rawValue: subject) != nil
             ? original["errorTypeID"] as? String : nil
-        centerComprehensionTrap = original["centerComprehensionTrap"] as? String ?? ""
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         isDifficult = (original["isDifficult"] as? Bool) ?? (original["isDifficult"] as? NSNumber)?.boolValue ?? false
         needsReview = (original["needsReview"] as? Bool) ?? (original["needsReview"] as? NSNumber)?.boolValue ?? false
@@ -201,7 +198,6 @@ struct LibraryRecordDraft {
         }
         correctOption = LibraryRecordDraft.text(original, keys: ["correctOption"])
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
-        pitfall = LibraryRecordDraft.text(original, keys: ["pitfall"])
         reminder = LibraryRecordDraft.text(original, keys: ["reminder"])
         quantityStructure = LibraryRecordDraft.text(original, keys: ["quantityStructure"])
         if let values = original["weaknessTags"] as? [String], !values.isEmpty {
@@ -311,7 +307,6 @@ struct LibraryRecordDraft {
             && mistakeTagRefs == other.mistakeTagRefs
             && errorCause == other.errorCause
             && errorTypeID == other.errorTypeID
-            && centerComprehensionTrap == other.centerComprehensionTrap
             && status == other.status
             && isDifficult == other.isDifficult
             && needsReview == other.needsReview
@@ -320,7 +315,6 @@ struct LibraryRecordDraft {
             && optionImageIDs == other.optionImageIDs
             && correctOption == other.correctOption
             && userOption == other.userOption
-            && pitfall == other.pitfall
             && reminder == other.reminder
             && quantityStructure == other.quantityStructure
             && weaknessTags == other.weaknessTags
@@ -566,17 +560,9 @@ enum LibraryRecordRepository {
             object["knowledgePoint"] = knowledgePoints.first ?? ""
             object["mistakeTagRefs"] = LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.mistakeTagRefs)
                 .map(\.jsonValue)
-            if draft.subject == "数量关系" {
-                object["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
-            } else {
-                let causeKey = ["errorCause", "cause", "reason"].first { object[$0] != nil } ?? "errorCause"
-                object[causeKey] = object[causeKey] is [String]
-                    ? LibraryDataAnalysisCauseLayout.splitLines(draft.errorCause)
-                    : draft.errorCause
-                for key in ["errorCause", "cause", "reason"] where key != causeKey {
-                    object.removeValue(forKey: key)
-                }
-            }
+            LibraryDataAnalysisCauseLayout.store(
+                draft.errorCause, in: &object, isQuantity: draft.subject == "数量关系"
+            )
             object["errorTypeID"] = LibraryErrorTypeSubject(rawValue: draft.subject) == nil ? nil : draft.errorTypeID
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
@@ -596,7 +582,6 @@ enum LibraryRecordRepository {
             }
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
-            object["pitfall"] = draft.pitfall
             object["reminder"] = draft.reminder
             object["quantityStructure"] = draft.quantityStructure
             if draft.subject == "数量关系" {

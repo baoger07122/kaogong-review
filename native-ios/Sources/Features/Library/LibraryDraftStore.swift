@@ -19,7 +19,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var optionImageIDs: [String]?
     var correctOption: String
     var userOption: String
-    var pitfall: String
+    var pitfall: String?
     var reminder: String?
     var quantityStructure: String?
     var weaknessTags: String?
@@ -92,12 +92,11 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         optionImageIDs = draft.optionImageIDs
         correctOption = draft.correctOption
         userOption = draft.userOption
-        pitfall = draft.pitfall
         reminder = draft.reminder
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
-        centerComprehensionTrap = draft.centerComprehensionTrap
-        quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
+        quantityErrorCauseIsAuthoritative = draft.subject == "数量关系"
+            ? true : draft.quantityErrorCauseIsAuthoritative
         isDifficult = draft.isDifficult
         needsReview = draft.needsReview
         questionSource = draft.questionSource
@@ -164,15 +163,18 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.errorTypeID = errorTypeID
         let restoredCauseAuthority = quantityErrorCauseIsAuthoritative ?? false
         draft.quantityErrorCauseIsAuthoritative = restoredCauseAuthority
-        if subject == "数量关系" {
-            draft.errorCause = LibraryQuantityErrorCauseCompatibility.serialized(
-                errorCause: errorCause,
-                weaknessTags: weaknessTags ?? "",
-                authoritative: restoredCauseAuthority
+        let legacyTraps: [String: Any] = [
+            "pitfall": pitfall ?? "",
+            "centerComprehensionTrap": centerComprehensionTrap ?? ""
+        ]
+        let causeLines = subject == "数量关系"
+            ? LibraryQuantityErrorCauseCompatibility.values(
+                errorCause: errorCause, weaknessTags: weaknessTags, authoritative: restoredCauseAuthority
             )
-        } else {
-            draft.errorCause = errorCause
-        }
+            : LibraryDataAnalysisCauseLayout.splitLines(errorCause)
+        let mergedCauses = LibraryDataAnalysisCauseLayout.mergingTrapLines(into: causeLines, from: legacyTraps)
+        draft.errorCause = subject == "数量关系" || mergedCauses != causeLines
+            ? mergedCauses.joined(separator: "\n") : errorCause
         draft.status = status
         draft.options = options
         draft.optionImages = optionImages ?? Array(repeating: "", count: max(4, options.count))
@@ -185,11 +187,9 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         }
         draft.correctOption = correctOption
         draft.userOption = userOption
-        draft.pitfall = pitfall
         draft.reminder = reminder ?? ""
         draft.quantityStructure = quantityStructure ?? ""
         draft.weaknessTags = weaknessTags ?? ""
-        draft.centerComprehensionTrap = centerComprehensionTrap ?? ""
         draft.isDifficult = isDifficult ?? false
         draft.needsReview = needsReview ?? false
         draft.questionSource = questionSource
@@ -246,6 +246,8 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var hasUserContent: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !errorCause.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(pitfall ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(knowledgePointRefs ?? []).isEmpty
             || !(knowledgePointNames ?? []).isEmpty
             || !(mistakeTagRefs ?? []).isEmpty

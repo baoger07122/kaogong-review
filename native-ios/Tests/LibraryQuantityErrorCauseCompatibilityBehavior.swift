@@ -22,6 +22,14 @@ struct LibraryQuantityErrorCauseCompatibilityBehavior {
         editedRecord["errorCause"] = ""
         precondition(LibraryQuantityErrorCauseCompatibility.values(in: editedRecord).isEmpty)
 
+        editedRecord["pitfall"] = "把速度、路程混为一谈"
+        precondition(
+            LibraryQuantityErrorCauseCompatibility.values(in: editedRecord) == ["把速度、路程混为一谈"],
+            "old pitfall text is independent of the weakness-tag migration marker"
+        )
+        LibraryDataAnalysisCauseLayout.store("", in: &editedRecord, isQuantity: true)
+        precondition(LibraryQuantityErrorCauseCompatibility.values(in: editedRecord).isEmpty)
+
         precondition(
             LibraryQuantityErrorCauseCompatibility.serialized(
                 errorCause: "错因一、错因二",

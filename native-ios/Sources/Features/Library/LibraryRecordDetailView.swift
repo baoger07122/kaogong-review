@@ -1243,11 +1243,7 @@ struct LibraryRecordDetailView: View {
                     metadataTextLine("识别思路", value: firstText(["recognition", "recognitionPath"]) ?? "")
                 }
             }
-            let pitfall = firstText(["pitfall", "misconception", "thinkingTrap"]) ?? ""
             let reminder = firstText(["reminder"]) ?? ""
-            if !isLogicFillError && (!isAnalogyReasoning || !pitfall.isEmpty) {
-                metadataTextLine(isDataAnalysis ? "陷阱" : "误区", value: pitfall)
-            }
             if !isAnalogyReasoning || !reminder.isEmpty {
                 metadataTextLine(isAnalogyReasoning ? "常识" : "提醒", value: reminder)
             }
@@ -2151,7 +2147,7 @@ struct LibraryRecordDetailView: View {
         if canEditReviewAttributes {
             Button {
                 editingDataAnalysisCauses = LibraryDetailAttribute(
-                    key: LibraryDataAnalysisCauseLayout.storageKey(in: object),
+                    key: "errorCause",
                     label: "错因说明",
                     value: values.joined(separator: "\n")
                 )
@@ -2222,7 +2218,6 @@ struct LibraryRecordDetailView: View {
             if isQuantityRelations { return "errorCause" }
             return existingAttributeKey(["errorCause", "cause", "reason"], fallback: "errorCause")
         }
-        if label == "误区" || label == "陷阱" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
         if label == "提醒" || label == "常识" { return "reminder" }
         if label.contains("结构") { return "quantityStructure" }
         if label.contains("规律") { return existingAttributeKey(["graphRule", "patternRule"], fallback: "graphRule") }
@@ -2352,13 +2347,10 @@ struct LibraryRecordDetailView: View {
         guard let record else { return "题目记录不存在，修改未保存。" }
         var updated = object
         let originalValue = updated[attribute.key]
-        if isQuantityRelations, attribute.key == "errorCause" {
-            updated["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: value)
-        } else if ["errorCause", "cause", "reason"].contains(attribute.key) {
-            let lines = LibraryDataAnalysisCauseLayout.splitLines(value)
-            updated[attribute.key] = originalValue is [String] ? lines : lines.joined(separator: "\n")
-            for key in ["errorCause", "cause", "reason"] where key != attribute.key {
-                updated.removeValue(forKey: key)
+        if LibraryDataAnalysisCauseLayout.causeKeys.contains(attribute.key) {
+            LibraryDataAnalysisCauseLayout.store(value, in: &updated, isQuantity: isQuantityRelations)
+            if isQuantityRelations {
+                LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &updated)
             }
         } else if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
             updated[attribute.key] = value == "是"
@@ -2369,9 +2361,6 @@ struct LibraryRecordDetailView: View {
                 .filter { !$0.isEmpty }
         } else {
             updated[attribute.key] = value
-        }
-        if isQuantityRelations, attribute.key == "errorCause" {
-            LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &updated)
         }
         updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
         guard JSONSerialization.isValidJSONObject(updated),

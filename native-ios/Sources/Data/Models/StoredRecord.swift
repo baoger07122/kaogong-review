@@ -49,7 +49,8 @@ final class StoredRecord {
         let fields: [String]
         switch collection {
         case "errors":
-            fields = ["errorCause", "cause", "reason", "compareGroups"]
+            fields = LibraryDataAnalysisCauseLayout.causeKeys + LibraryDataAnalysisCauseLayout.legacyTrapKeys
+                + ["compareGroups", LibraryQuantityErrorCauseCompatibility.authorityKey]
         case "words":
             fields = ["linkedErrors", "relatedErrorIds"]
         default:
@@ -126,19 +127,20 @@ final class StoredRecord {
         let keys: Set<String>
         switch collection {
         case "errors":
-            keys = [
+            keys = Set([
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "knowledgePointRefs", "mistakeTagRefs", "errorCause", "errorTypeID", "status",
                 "cause", "reason", "compareGroups",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
-                "accuracy", "reviewCount", "sourceExamId", "pitfall", "reminder", "linkedWordIds", "options",
+                "accuracy", "reviewCount", "sourceExamId", "reminder", "linkedWordIds", "options",
                 "dataAnalysisMaterialText",
                 "imageDisplayMetadata", "imageCount", "optionImageIDs",
                 "questionBankPaperID", "questionBankQuestionID",
                 "shenlunFormatVersion",
                 "quantityStructure", "weaknessTags", "isDifficult", "needsReview",
                 "reviewSource", "examType", "paperType", "sourceType"
-            ]
+            ]).union(LibraryDataAnalysisCauseLayout.legacyTrapKeys)
+                .union([LibraryQuantityErrorCauseCompatibility.authorityKey])
         case "notes":
             keys = [
                 "id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt",

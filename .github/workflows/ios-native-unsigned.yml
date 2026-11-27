@@ -108,6 +108,7 @@ jobs:
             -o "$RUNNER_TEMP/library-quantity-type-selection-behavior"
           "$RUNNER_TEMP/library-quantity-type-selection-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryDataAnalysisCauseLayout.swift \
             native-ios/Sources/Features/Library/LibraryQuantityErrorCauseCompatibility.swift \
             native-ios/Tests/LibraryQuantityErrorCauseCompatibilityBehavior.swift \
             -o "$RUNNER_TEMP/library-quantity-error-cause-compatibility-behavior"

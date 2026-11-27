@@ -130,7 +130,6 @@ struct LibraryRecordEditorView: View {
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var showLinkedWordCreation = false
     @State private var showQuantityKnowledgePoints = false
-    @State private var showQuantityWeaknessTags = false
     @State private var showQuantityQuestionTypes = false
     @State private var isCurrentAffairsSupplementExpanded = false
     @State private var isSaving = false
@@ -559,18 +558,6 @@ struct LibraryRecordEditorView: View {
                 onTagMutation: applyTagMutation
             )))
         }
-        if showQuantityWeaknessTags {
-            overlays.append(AnyView(LibraryTagSelectionDialog(
-                kind: .thinkingTrap,
-                module: "数量关系-弱项",
-                subject: draft.subject,
-                selection: $draft.weaknessTags,
-                onClose: { showQuantityWeaknessTags = false },
-                onTagMutation: applyTagMutation,
-                titleOverride: "弱项标签",
-                maximumOverride: 8
-            )))
-        }
         if showQuantityQuestionTypes {
             overlays.append(AnyView(QuantityQuestionTypeSelectionDialog(
                 selection: $draft.module,
@@ -669,35 +656,21 @@ struct LibraryRecordEditorView: View {
                 )
             }
         case .errorCause:
-            let usesLineEditor = draft.subject == "数量关系"
-                || LibraryDataAnalysisCauseLayout.usesTextCause(subject: draft.subject, module: draft.module)
-            draft.errorCause = replacingTag(
-                result.oldName,
-                with: result.newName,
-                in: draft.errorCause,
-                lineBased: usesLineEditor
-            )
+            let previousCause = editBaseline.errorCause
             if draft.subject == "数量关系" {
                 draft.quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: afterObject)
                 editBaseline.quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
                 editBaseline.errorCause = LibraryQuantityErrorCauseCompatibility.values(in: afterObject).joined(separator: "\n")
-            } else if usesLineEditor {
-                editBaseline.errorCause = LibraryDataAnalysisCauseLayout.rawCause(in: afterObject)
             } else {
-                editBaseline.errorCause = payloadString(from: afterObject, keys: ["errorCause", "cause", "reason"])
+                editBaseline.errorCause = LibraryDataAnalysisCauseLayout.rawCause(in: afterObject)
             }
-        case .thinkingTrap:
-            draft.weaknessTags = replacingTag(
-                result.oldName,
-                with: result.newName,
-                in: draft.weaknessTags,
-                lineBased: false
-            )
-            editBaseline.weaknessTags = payloadTagValue(
-                from: afterObject,
-                arrayKey: "weaknessTags",
-                scalarKey: nil
-            )
+            if draft.errorCause == previousCause {
+                draft.errorCause = editBaseline.errorCause
+            } else {
+                let lines = LibraryDataAnalysisCauseLayout.splitLines(draft.errorCause)
+                draft.errorCause = lines.compactMap { $0 == result.oldName ? result.newName : $0 }
+                    .joined(separator: "\n")
+            }
         case .mistakeTag:
             let references = LibraryMistakeTagPolicy.references(from: afterObject)
             draft.mistakeTagRefs = references
@@ -710,17 +683,6 @@ struct LibraryRecordEditorView: View {
             get: { LibraryKnowledgePointReferencePolicy.displayNames(from: draft.mistakeTagRefs).joined(separator: "、") },
             set: { _ in }
         )
-    }
-
-    private func replacingTag(_ oldName: String, with newName: String?, in value: String, lineBased: Bool) -> String {
-        let pieces = lineBased
-            ? LibraryDataAnalysisCauseLayout.splitLines(value)
-            : value.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
-        let mapped = pieces.compactMap { piece -> String? in
-            guard piece == oldName else { return piece }
-            return newName
-        }
-        return mapped.joined(separator: lineBased ? "\n" : "、")
     }
 
     private func payloadTagValue(from object: [String: Any], arrayKey: String, scalarKey: String?) -> String {
@@ -1028,7 +990,6 @@ struct LibraryRecordEditorView: View {
             activeRelation: $activeRelation,
             expandedAnswerField: $expandedAnswerField,
             showQuantityKnowledgePoints: $showQuantityKnowledgePoints,
-            showQuantityWeaknessTags: $showQuantityWeaknessTags,
             isCurrentAffairsSupplementExpanded: $isCurrentAffairsSupplementExpanded,
             questionImageWidthPreview: $questionImageWidthPreview
         )
