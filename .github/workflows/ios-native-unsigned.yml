@@ -214,6 +214,11 @@ jobs:
             native-ios/Tests/LibraryKnowledgePointTagLayoutBehavior.swift \
             -o "$RUNNER_TEMP/library-knowledge-point-tag-layout-behavior"
           "$RUNNER_TEMP/library-knowledge-point-tag-layout-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryPayloadDecodeCoordinator.swift \
+            native-ios/Tests/LibraryPreparedWriteBehavior.swift \
+            -o "$RUNNER_TEMP/library-prepared-write-behavior"
+          "$RUNNER_TEMP/library-prepared-write-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope
