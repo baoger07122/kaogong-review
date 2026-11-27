@@ -10,7 +10,7 @@ private struct LibraryDoodlePreparedWrite: Sendable {
 
 @MainActor
 enum LibraryDoodlePersistence {
-    typealias CommitObserver = (LibraryDetailPayloadKey, LibraryDecodedJSONPayload) -> Void
+    typealias CommitObserver = @MainActor (LibraryDetailPayloadKey, LibraryDecodedJSONPayload) -> Void
 
     nonisolated static let flashcardDrawingsKey = "flashcardDoodleDrawings"
 

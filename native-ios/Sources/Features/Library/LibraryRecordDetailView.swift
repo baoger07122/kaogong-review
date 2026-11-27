@@ -2753,13 +2753,11 @@ struct LibraryRecordDetailView: View {
                     return error
                 }
                 if opensSplitDoodle { return nil }
-                return await LibraryDoodlePersistence.save(
+                return await saveOrdinaryDoodle(
                     record: targetRecord,
                     context: targetContext,
                     drawingData: updatedDrawing,
-                    legacyPreviewCleared: legacyPreviewCleared,
-                    savesPreviewTogether: kind == .errors,
-                    onCommitted: kind == .errors ? adoptCommittedDoodle : nil
+                    legacyPreviewCleared: legacyPreviewCleared
                 )
             }
         )
@@ -2794,7 +2792,7 @@ struct LibraryRecordDetailView: View {
             let isSplitDrawing = targetSession.isSplitDrawingSession
             let drawingData = targetSession.canvas.drawingData
             let legacyPreviewCleared = targetSession.canvas.controller.legacyPreviewCleared
-            backgroundDoodleSaveTask = Task { @MainActor in
+            backgroundDoodleSaveTask = Task<Void, Never> { @MainActor in
                 defer {
                     if backgroundDoodleSaveRequestID == requestID { backgroundDoodleSaveRequestID = nil }
                     backgroundDoodleSaveTask = nil
@@ -2804,13 +2802,11 @@ struct LibraryRecordDetailView: View {
                 if isSplitDrawing {
                     error = await saveSplitDoodleChanges(record: targetRecord, context: targetContext)
                 } else {
-                    error = await LibraryDoodlePersistence.save(
+                    error = await saveOrdinaryDoodle(
                         record: targetRecord,
                         context: targetContext,
                         drawingData: drawingData,
-                        legacyPreviewCleared: legacyPreviewCleared,
-                        savesPreviewTogether: kind == .errors,
-                        onCommitted: kind == .errors ? adoptCommittedDoodle : nil
+                        legacyPreviewCleared: legacyPreviewCleared
                     )
                 }
                 if let error {
@@ -2825,6 +2821,31 @@ struct LibraryRecordDetailView: View {
         } else {
             saveSnapshot()
         }
+    }
+
+    private func saveOrdinaryDoodle(
+        record: StoredRecord,
+        context: ModelContext,
+        drawingData: String,
+        legacyPreviewCleared: Bool
+    ) async -> String? {
+        let isErrorDetail = kind == .errors
+        let onCommitted: LibraryDoodlePersistence.CommitObserver?
+        if isErrorDetail {
+            onCommitted = { previousKey, payload in
+                adoptCommittedDoodle(previousKey, payload)
+            }
+        } else {
+            onCommitted = nil
+        }
+        return await LibraryDoodlePersistence.save(
+            record: record,
+            context: context,
+            drawingData: drawingData,
+            legacyPreviewCleared: legacyPreviewCleared,
+            savesPreviewTogether: isErrorDetail,
+            onCommitted: onCommitted
+        )
     }
 
     private var activeRecordID: String {
