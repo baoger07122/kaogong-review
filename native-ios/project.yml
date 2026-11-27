@@ -1,5 +1,4 @@
 name: KaogongReviewNative
-# Release-only rebuild after simulator timeout; no app behavior change.
 options:
   bundleIdPrefix: com.baoger07122
   developmentLanguage: zh-Hans
@@ -12,8 +11,8 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: "11.27.2"
-    CURRENT_PROJECT_VERSION: "168"
+    MARKETING_VERSION: "11.27.3"
+    CURRENT_PROJECT_VERSION: "169"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
 packages:
@@ -68,6 +67,7 @@ targets:
     sources:
       - Tests/Animation
       - Tests/Shenlun
+      - Tests/Exams
       - Sources/Features/Speed/SpeedAnimatedText.swift
     dependencies:
       - target: KaogongReviewNative

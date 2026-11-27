@@ -1,0 +1,454 @@
+<section id="exam-list-and-detail" aria-label="套卷统计与详情设计">
+  <header class="exr-bar">
+    <button class="exr-link exr-back" type="button" data-action="back" hidden>‹ 套卷统计</button>
+    <h2 data-title>套卷统计</h2>
+  </header>
+
+  <main class="exr-page" data-list>
+    <div class="exr-list-tools">
+      <div class="exr-filters" role="group" aria-label="套卷类型">
+        <button type="button" data-filter="all" aria-pressed="true">全部</button>
+        <button type="button" data-filter="real" aria-pressed="false">真题</button>
+        <button type="button" data-filter="mock" aria-pressed="false">模拟卷</button>
+      </div>
+      <label class="exr-toggle"><input type="checkbox" role="switch" data-visibility checked><span>显示备注</span></label>
+    </div>
+    <dl class="exr-card exr-summary" data-summary></dl>
+    <section class="exr-section" aria-labelledby="exr-history">
+      <div class="exr-line">
+        <h3 id="exr-history">套卷记录</h3>
+        <label class="exr-sort">
+          <span class="exr-sr">排序</span>
+          <select data-sort><option value="latest">最新</option><option value="accuracyHigh">正确率高→低</option><option value="accuracyLow">正确率低→高</option></select>
+        </label>
+      </div>
+      <div class="exr-card exr-list" data-records></div>
+    </section>
+  </main>
+
+  <main class="exr-page" data-detail hidden>
+    <section class="exr-card exr-detail-summary" aria-label="套卷成绩">
+      <p class="exr-foot" data-detail-meta></p>
+      <h3 class="exr-record-title" data-detail-name></h3>
+      <dl class="exr-detail-metrics" data-detail-metrics></dl>
+    </section>
+
+    <section class="exr-card exr-review" aria-labelledby="exr-note-title">
+      <div class="exr-line"><h3 id="exr-note-title">复盘备注</h3><button type="button" class="exr-link" data-action="edit">编辑备注</button></div>
+      <div class="exr-note" data-detail-note></div>
+      <form class="exr-form" hidden data-form>
+        <label for="exr-note-body">本套表现</label>
+        <textarea id="exr-note-body" rows="3" placeholder="哪里失分、卡题或者节奏失控？"></textarea>
+        <label for="exr-note-next">下次怎么改</label>
+        <textarea id="exr-note-next" rows="2" placeholder="写一个下次做卷可以执行的调整"></textarea>
+        <div class="exr-form-actions">
+          <button class="exr-link" type="button" data-action="cancel">取消</button>
+          <button class="exr-primary" type="submit">保存备注</button>
+        </div>
+      </form>
+      <p class="exr-announcement" role="status" hidden data-notice></p>
+    </section>
+
+    <section class="exr-card exr-modules" aria-labelledby="exr-modules-title">
+      <h3 id="exr-modules-title">模块成绩</h3>
+      <table data-table>
+        <colgroup><col class="exr-module-name"><col><col><col></colgroup>
+        <thead><tr><th scope="col">模块</th><th scope="col">答对/题数</th><th scope="col">正确率</th><th scope="col">用时</th></tr></thead>
+        <tbody data-module-rows></tbody>
+      </table>
+      <p class="exr-foot" data-module-warning></p>
+    </section>
+
+    <section class="exr-card exr-linked">
+      <h3>关联错题</h3><p class="exr-foot" data-linked></p>
+    </section>
+  </main>
+</section>
+<style>
+  #exam-list-and-detail {
+    color-scheme: light dark;
+    --exr-bg: light-dark(#f2f2f7,#18181c);
+    --exr-card: light-dark(#fff,#232329);
+    --exr-ink: light-dark(#18191d,#f2f2f6);
+    --exr-sub: light-dark(#676a75,#b7b8c3);
+    --exr-line: light-dark(#e5e5ec,#3c3e48);
+    --exr-segment: light-dark(#e9e9f0,#30313a);
+    --exr-blue: light-dark(#0065cc,#8abfff);
+    --exr-primary: light-dark(#006bd6,#135ca6);
+    --exr-tint: light-dark(#eef5fc,#25354b);
+    --exr-warn: light-dark(#865521,#f1c484);
+    --exr-good: light-dark(#246758,#a4d9ca);
+    background: var(--exr-bg); color: var(--exr-ink);
+    border: 1px solid var(--exr-line); border-radius: 16px; overflow: hidden;
+    font: 14px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  #exam-list-and-detail * { box-sizing: border-box; }
+  #exam-list-and-detail [hidden] { display: none !important; }
+  #exam-list-and-detail :is(h2,h3,h4,p,dl,dd) { margin: 0; }
+  #exam-list-and-detail :is(button,select,textarea,input) { font: inherit; }
+  #exam-list-and-detail :is(button,select) { cursor: pointer; }
+  #exam-list-and-detail :is(button,select,textarea,input):focus-visible { outline: 2px solid var(--exr-blue); outline-offset: 2px; }
+  #exam-list-and-detail :is(.exr-summary,.exr-detail-metrics,.exr-score,.exr-facts,table) { font-variant-numeric: tabular-nums; }
+  #exam-list-and-detail .exr-bar {
+    display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center;
+    min-height: 52px; padding: 2px 10px; background: var(--exr-card); border-bottom: 1px solid var(--exr-line);
+  }
+  #exam-list-and-detail .exr-bar h2 { grid-column: 2; grid-row: 1; font-size: 17px; font-weight: 650; }
+  #exam-list-and-detail .exr-back { grid-column: 1; grid-row: 1; justify-self: start; white-space: nowrap; }
+  #exam-list-and-detail .exr-page { max-width: 850px; margin: 0 auto; padding: 13px clamp(10px,2.8vw,22px) 18px; display: grid; gap: 11px; }
+  #exam-list-and-detail .exr-card { min-width: 0; background: var(--exr-card); border-radius: 12px; }
+  #exam-list-and-detail :is(.exr-list-tools,.exr-line) { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; }
+  #exam-list-and-detail .exr-filters { display: flex; width: min(58%,345px); padding: 3px; gap: 2px; border-radius: 9px; background: var(--exr-segment); }
+  #exam-list-and-detail .exr-filters button { flex: 1 1 0; white-space: nowrap; border: 0; border-radius: 7px; min-height: 36px; padding: 2px 4px; color: var(--exr-sub); background: transparent; font-size: 13px; }
+  #exam-list-and-detail .exr-filters button[aria-pressed=true] { background: var(--exr-card); color: var(--exr-blue); font-weight: 650; }
+  #exam-list-and-detail .exr-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; white-space: nowrap; }
+  #exam-list-and-detail .exr-toggle input {
+    appearance: none; width: 32px; height: 19px; margin: 0; border: 1px solid var(--exr-line);
+    border-radius: 20px; background: var(--exr-segment); position: relative;
+  }
+  #exam-list-and-detail .exr-toggle input::before {
+    content: ""; position: absolute; width: 13px; height: 13px; inset: 2px auto auto 2px;
+    background: #fff; border-radius: 50%; box-shadow: 0 1px 2px #0003;
+  }
+  #exam-list-and-detail .exr-toggle input:checked { background: var(--exr-primary); border-color: var(--exr-primary); }
+  #exam-list-and-detail .exr-toggle input:checked::before { transform: translateX(13px); }
+  #exam-list-and-detail .exr-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: 9px 5px; text-align: center; }
+  #exam-list-and-detail .exr-summary > div + div { border-inline-start: 1px solid var(--exr-line); }
+  #exam-list-and-detail :is(.exr-summary,.exr-detail-metrics) dt { color: var(--exr-sub); font-size: 12px; }
+  #exam-list-and-detail :is(.exr-summary,.exr-detail-metrics) dd { font-weight: 650; font-size: 16px; color: var(--exr-ink); white-space: nowrap; }
+  #exam-list-and-detail .exr-section { display: grid; gap: 3px; }
+  #exam-list-and-detail h3 { font-size: 15px; font-weight: 650; }
+  #exam-list-and-detail .exr-sort select { min-height: 40px; padding: 4px 4px 4px 8px; color: var(--exr-blue); background: transparent; border: 1px solid transparent; font-size: 13px; }
+  #exam-list-and-detail .exr-list { padding-inline: 13px; }
+  #exam-list-and-detail .exr-item { padding: 3px 0; }
+  #exam-list-and-detail .exr-item + .exr-item { border-top: 1px solid var(--exr-line); }
+  #exam-list-and-detail .exr-open {
+    display: grid; width: 100%; grid-template-columns: minmax(0,1fr) auto; align-items: center; column-gap: 12px;
+    background: transparent; border: 0; color: var(--exr-ink); text-align: start; padding: 7px 0; min-height: 54px;
+  }
+  #exam-list-and-detail .exr-lead { display: grid; min-width: 0; gap: 3px; }
+  #exam-list-and-detail .exr-lead strong { line-height: 1.35; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+  #exam-list-and-detail .exr-foot { color: var(--exr-sub); font-size: 12px; }
+  #exam-list-and-detail .exr-facts { display: flex; flex-wrap: wrap; gap: 1px 8px; color: var(--exr-sub); font-size: 12px; }
+  #exam-list-and-detail .exr-score { display: flex; gap: 3px; align-items: baseline; color: var(--exr-sub); white-space: nowrap; font-size: 11px; }
+  #exam-list-and-detail .exr-score strong { color: var(--exr-blue); font-size: 21px; font-weight: 650; }
+  #exam-list-and-detail .exr-score b { margin-inline-start: 3px; color: var(--exr-sub); font-size: 14px; font-weight: 500; }
+  #exam-list-and-detail .exr-preview { margin: 0 0 6px; padding: 0 8px; border-radius: 7px; background: var(--exr-tint); }
+  #exam-list-and-detail .exr-preview button {
+    width: 100%; display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 7px; align-items: center;
+    min-height: 44px; text-align: start; background: transparent; border: 0; padding: 3px 0; color: var(--exr-ink); font-size: 13px;
+  }
+  #exam-list-and-detail .exr-preview button:first-child span:first-child { color: var(--exr-blue); font-weight: 600; }
+  #exam-list-and-detail .exr-brief { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #exam-list-and-detail .exr-preview-content { display: grid; gap: 5px; padding: 2px 0 9px; }
+  #exam-list-and-detail .exr-preview-content p { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #exam-list-and-detail .exr-link, #exam-list-and-detail .exr-primary { min-height: 44px; min-width: 40px; padding: 4px 6px; border: 0; border-radius: 8px; color: var(--exr-blue); background: transparent; font-size: 13px; font-weight: 650; }
+  #exam-list-and-detail .exr-primary { padding-inline: 11px; color: #fff; background: var(--exr-primary); }
+  #exam-list-and-detail :is(.exr-detail-summary,.exr-review,.exr-modules,.exr-linked) { padding: 10px 13px; }
+  #exam-list-and-detail .exr-record-title { font-size: 17px; line-height: 1.35; margin-block: 2px 7px; }
+  #exam-list-and-detail .exr-detail-metrics { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 6px 4px; border-top: 1px solid var(--exr-line); padding-top: 6px; }
+  #exam-list-and-detail .exr-detail-metrics div { min-width: 0; }
+  #exam-list-and-detail .exr-detail-metrics div:first-child dd { color: var(--exr-blue); }
+  #exam-list-and-detail .exr-review .exr-line { margin-top: -5px; }
+  #exam-list-and-detail .exr-note { display: grid; gap: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #exam-list-and-detail .exr-note h4 { font-size: 13px; font-weight: 650; margin-bottom: 2px; }
+  #exam-list-and-detail .exr-next { border-radius: 8px; padding: 6px 8px; background: var(--exr-tint); }
+  #exam-list-and-detail .exr-next h4 { color: var(--exr-blue); }
+  #exam-list-and-detail .exr-form { display: grid; gap: 4px; }
+  #exam-list-and-detail .exr-form label { font-size: 13px; color: var(--exr-sub); }
+  #exam-list-and-detail .exr-form textarea { width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--exr-line); border-radius: 8px; padding: 7px; font-size: 16px; color: var(--exr-ink); background: var(--exr-bg); }
+  #exam-list-and-detail .exr-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+  #exam-list-and-detail .exr-announcement { color: var(--exr-good); font-size: 12px; }
+  #exam-list-and-detail .exr-modules table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
+  #exam-list-and-detail .exr-module-name { width: 40%; }
+  #exam-list-and-detail .exr-modules :is(th,td) { text-align: end; padding: 5px 1px; min-width: 0; font-size: 13px; }
+  #exam-list-and-detail .exr-modules :is(th,td):first-child { text-align: start; }
+  #exam-list-and-detail .exr-modules th { color: var(--exr-sub); font-weight: 500; }
+  #exam-list-and-detail .exr-modules tbody tr { border-top: 1px solid var(--exr-line); height: 34px; }
+  #exam-list-and-detail .exr-modules tbody tr.exr-child { color: var(--exr-sub); }
+  #exam-list-and-detail .exr-modules tr.exr-child td:first-child { padding-inline-start: 10px; }
+  #exam-list-and-detail .exr-module-button { padding: 0; border: 0; background: transparent; color: var(--exr-ink); text-align: start; font-size: inherit; font-weight: 650; min-height: 32px; }
+  #exam-list-and-detail .exr-modules .exr-foot { margin-top: 6px; color: var(--exr-warn); }
+  #exam-list-and-detail .exr-linked { display: flex; flex-wrap: wrap; gap: 5px; justify-content: space-between; align-items: center; }
+  #exam-list-and-detail .exr-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  @media(max-width: 480px) {
+    #exam-list-and-detail .exr-detail-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    #exam-list-and-detail .exr-back { font-size: 12px; }
+    #exam-list-and-detail .exr-score strong { font-size: 19px; }
+    #exam-list-and-detail .exr-modules :is(th,td) { font-size: 12px; }
+  }
+  @media(pointer: coarse) {
+    #exam-list-and-detail .exr-module-button { min-height: 44px; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('exam-list-and-detail');
+  const $ = (selector) => root.querySelector(selector);
+  const records = [
+    {id:'nov26',name:'智能组卷',type:'real',date:'2026-11-26',score:64.8,correct:81,total:125,time:'1:49:16',linked:0,
+      note:'片段阅读用时 14:57，几道题来回比较选项。数量关系有两题卡住，拖慢了后面的节奏。',
+      next:'片段阅读先抓主旨再比选项。数量做满 18 分钟就切模块。',
+      modules:[
+        ['政治理论',6,15,'5:19'],
+        ['常识判断',3,10,'2:55'],
+        ['言语理解与表达',22,30,'28:54',[
+          ['逻辑填空',11,13,'8:32'],['片段阅读',8,12,'14:57'],['语句表达',3,5,'5:25']
+        ]],
+        ['数量关系',8,15,'21:32'],
+        ['判断推理',26,35,'29:43',[
+          ['图形推理',3,5,'4:32'],['定义判断',8,10,'5:19'],['类比推理',7,10,'7:26'],['逻辑判断',7,10,'12:26']
+        ]],
+        ['资料分析',16,20,'20:53']
+      ]
+    },
+    {id:'nov24',name:'智能组卷',type:'real',date:'2026-11-24',score:72.8,correct:91,total:125,time:'1:49:28',
+      note:'整套节奏较稳定，做完还有检查时间。',next:'把最后 5 分钟留给标记题和答题卡。'},
+    {id:'nov22',name:'粉笔 2026 下半年省考行测模考大赛（第三十六季）',type:'mock',date:'2026-11-22',score:64,correct:80,total:125,time:'1:52:14',
+      note:'',next:''},
+    {id:'nov16',name:'粉笔 2026 下半年省考行测模考大赛（第三十五季）',type:'mock',date:'2026-11-16',score:73.6,correct:92,total:125,time:'1:53:19',
+      note:'资料分析的列式较顺，最后一道综合题检查不够。',next:''}
+  ];
+  const state = {kind:'all',sort:'latest',visible:true,selected:null,editing:false,...(globalThis.openai?.widgetState?.privateContent ?? {})};
+  state.selected = null;
+  state.editing = false;
+  const expandedNotes = new Set();
+  const expandedModules = new Set();
+  const drafts = new Map();
+  const newNode = (tag, content, className) => {
+    const result = document.createElement(tag);
+    if (className) result.className = className;
+    if (content !== undefined) result.textContent = content;
+    return result;
+  };
+  const typeName = (record) => record.type === 'real' ? '真题' : '模拟卷';
+  const metadata = (record) => typeName(record) + ' · ' + record.date.replaceAll('-','.');
+  const percent = (right,total,decimals=1) => (right/total*100).toFixed(decimals) + '%';
+  const hasNote = (record) => Boolean(record.note.trim() || record.next.trim());
+  const record = () => records.find(r => r.id === state.selected);
+  const button = (title,className) => {
+    const element = newNode('button',title,className);
+    element.type = 'button';
+    return element;
+  };
+  const stat = ([name,value]) => {
+    const row = newNode('div');
+    row.append(newNode('dt',name),newNode('dd',value));
+    return row;
+  };
+  function noteSections(target,r) {
+    const sections = [];
+    if (r.note) {
+      const section = newNode('section');
+      section.append(newNode('h4','本套表现'),newNode('p',r.note));
+      sections.push(section);
+    }
+    if (r.next) {
+      const section = newNode('section',undefined,'exr-next');
+      section.append(newNode('h4','下次怎么改'),newNode('p',r.next));
+      sections.push(section);
+    }
+    target.replaceChildren(...sections);
+  }
+
+  function listRow(r) {
+    const item = newNode('article',undefined,'exr-item');
+    const open = button(undefined,'exr-open');
+    open.dataset.open = r.id;
+    const heading = newNode('span',undefined,'exr-lead');
+    const facts = newNode('span',undefined,'exr-facts');
+    facts.append(newNode('span','答对 '+r.correct+'/'+r.total),newNode('span','· '+percent(r.correct,r.total)),newNode('span','· '+r.time));
+    heading.append(newNode('span',metadata(r),'exr-foot'),newNode('strong',r.name),facts);
+    const score = newNode('span',undefined,'exr-score');
+    const chevron = newNode('b','›');
+    chevron.setAttribute('aria-hidden','true');
+    score.append(newNode('strong',String(r.score)),newNode('span','/100'),chevron);
+    open.append(heading,score);
+    item.append(open);
+
+    if (state.visible && hasNote(r)) {
+      const isExpanded = expandedNotes.has(r.id);
+      const note = newNode('div',undefined,'exr-preview');
+      const toggle = button();
+      toggle.dataset.expand = r.id;
+      toggle.setAttribute('aria-expanded',String(isExpanded));
+      const id = 'exr-note-' + r.id;
+      toggle.setAttribute('aria-controls',id);
+      toggle.append(newNode('span','备注'),newNode('span',r.next || r.note,'exr-brief'));
+      const glyph = newNode('span',isExpanded ? '⌃' : '⌄');
+      glyph.setAttribute('aria-hidden','true');
+      toggle.append(glyph);
+      const full = newNode('div',undefined,'exr-preview-content');
+      full.id = id;
+      full.hidden = !isExpanded;
+      noteSections(full,r);
+      note.append(toggle,full);
+      item.append(note);
+    }
+    return item;
+  }
+
+  function renderList() {
+    let visible = records.filter(r => state.kind === 'all' || r.type === state.kind);
+    visible = visible.slice().sort((a,b) => {
+      if (state.sort === 'accuracyHigh') return b.correct/b.total - a.correct/a.total;
+      if (state.sort === 'accuracyLow') return a.correct/a.total - b.correct/b.total;
+      return b.date.localeCompare(a.date);
+    });
+    const counts = visible.reduce((sum,r)=>[sum[0]+r.score,sum[1]+r.correct,sum[2]+r.total],[0,0,0]);
+    $('#exr-history').textContent = '套卷记录';
+    $('[data-summary]').replaceChildren(...[
+      ['套卷次数',visible.length],['平均得分',(counts[0]/visible.length).toFixed(2)],['总体正确率',percent(counts[1],counts[2],2)]
+    ].map(stat));
+    for (const filter of root.querySelectorAll('[data-filter]')) filter.setAttribute('aria-pressed',String(state.kind === filter.dataset.filter));
+    $('[data-visibility]').checked = state.visible;
+    $('[data-sort]').value = state.sort;
+    $('[data-records]').replaceChildren(...visible.map(listRow));
+  }
+
+  function renderModules(r) {
+    const table = $('[data-table]');
+    const warning = $('[data-module-warning]');
+    table.hidden = !r.modules;
+    warning.textContent = r.modules ? '判断推理的子项合计与总项不同，统计采用总项。' : '暂无模块成绩。';
+    const row = (entry, child = false) => {
+      const [name,right,total,time,children] = entry;
+      const tr = newNode('tr',undefined,child ? 'exr-child' : '');
+      const title = newNode('td');
+      if (children) {
+        const open = expandedModules.has(name);
+        const control = button((open ? '⌄ ' : '› ') + name,'exr-module-button');
+        control.dataset.module = name;
+        control.setAttribute('aria-expanded',String(open));
+        title.append(control);
+      } else title.append(newNode(child ? 'span' : 'strong',name));
+      tr.append(title,...[right+'/'+total,percent(right,total,0),time].map(v=>newNode('td',v)));
+      return tr;
+    };
+    const rows = (r.modules ?? []).flatMap(entry => {
+      const children = expandedModules.has(entry[0]) ? entry[4] ?? [] : [];
+      return [row(entry),...children.map(detail=>row(detail,true))];
+    });
+    $('[data-module-rows]').replaceChildren(...rows);
+  }
+
+  function renderDetail(r) {
+    $('[data-detail-meta]').textContent = metadata(r);
+    $('[data-detail-name]').textContent = r.name;
+    $('[data-detail-metrics]').replaceChildren(...[
+      ['得分',r.score+' / 100'],['答对 / 总题',r.correct+'/'+r.total],['答错',r.total-r.correct],['正确率',percent(r.correct,r.total)],['用时',r.time]
+    ].map(stat));
+    const note = $('[data-detail-note]');
+    if (hasNote(r)) noteSections(note,r);
+    else note.replaceChildren(newNode('p','还没有复盘备注。','exr-foot'));
+    $('[data-action="edit"]').textContent = drafts.has(r.id) ? '继续编辑' : hasNote(r) ? '编辑备注' : '写备注';
+    $('[data-action="edit"]').hidden = state.editing;
+    $('[data-form]').hidden = !state.editing;
+    note.hidden = state.editing;
+    const linked = $('[data-linked]');
+    linked.closest('.exr-linked').hidden = r.linked === undefined;
+    linked.textContent = r.linked === undefined ? '' : '答错 ' + (r.total-r.correct) + ' 题 · 已关联 ' + r.linked + ' 题';
+    renderModules(r);
+  }
+
+  function render() {
+    const r = record();
+    $('[data-title]').textContent = r ? '套卷记录' : '套卷统计';
+    $('[data-action="back"]').hidden = !r;
+    $('[data-list]').hidden = Boolean(r);
+    $('[data-detail]').hidden = !r;
+    if (r) renderDetail(r);
+    else renderList();
+  }
+  function rememberView() {
+    globalThis.openai?.setWidgetState?.({privateContent:{kind:state.kind,sort:state.sort,visible:state.visible},modelContent:null})?.catch(() => {});
+  }
+  function clearNotice() {
+    $('[data-notice]').hidden = true;
+    $('[data-notice]').textContent = '';
+  }
+
+  root.addEventListener('click',(event)=>{
+    const control = event.target.closest('button');
+    if (!control || !root.contains(control)) return;
+    if (control.dataset.filter) {
+      state.kind = control.dataset.filter;
+      renderList(); rememberView();
+      return;
+    }
+    if (control.dataset.open) {
+      state.selected = control.dataset.open;
+      expandedModules.clear();
+      clearNotice();
+      render();
+      $('[data-action="back"]').focus({preventScroll:true});
+      return;
+    }
+    if (control.dataset.expand) {
+      const key = control.dataset.expand;
+      if (expandedNotes.has(key)) expandedNotes.delete(key);
+      else expandedNotes.add(key);
+      renderList();
+      $('[data-expand="'+key+'"]').focus({preventScroll:true});
+      return;
+    }
+    if (control.dataset.module) {
+      const key = control.dataset.module;
+      if (expandedModules.has(key)) expandedModules.delete(key);
+      else expandedModules.add(key);
+      renderModules(record());
+      [...root.querySelectorAll('[data-module]')].find(x=>x.dataset.module===key)?.focus({preventScroll:true});
+      return;
+    }
+    const r = record();
+    if (control.dataset.action === 'back' && r) {
+      if (state.editing) drafts.set(r.id,{note:$('#exr-note-body').value,next:$('#exr-note-next').value});
+      state.editing = false;
+      state.selected = null;
+      render();
+      $('[data-open="'+r.id+'"]')?.focus();
+    } else if (control.dataset.action === 'edit' && r) {
+      state.editing = true;
+      const draft = drafts.get(r.id) ?? r;
+      $('#exr-note-body').value = draft.note;
+      $('#exr-note-next').value = draft.next;
+      clearNotice(); render();
+      $('#exr-note-body').focus();
+    } else if (control.dataset.action === 'cancel' && r) {
+      drafts.delete(r.id);
+      state.editing = false;
+      render();
+      $('[data-action="edit"]').focus();
+    }
+  });
+  root.addEventListener('change',(event)=>{
+    if (event.target.matches('[data-visibility]')) state.visible = event.target.checked;
+    else if (event.target.matches('[data-sort]')) state.sort = event.target.value;
+    else return;
+    renderList();
+    rememberView();
+  });
+  $('[data-form]').addEventListener('submit',(event)=>{
+    event.preventDefault();
+    const r = record();
+    if (!r) return;
+    r.note = $('#exr-note-body').value.trim();
+    r.next = $('#exr-note-next').value.trim();
+    drafts.delete(r.id);
+    state.editing = false;
+    render();
+    $('[data-notice]').textContent = '备注已保存';
+    $('[data-notice]').hidden = false;
+    $('[data-action="edit"]').focus();
+  });
+  window.addEventListener('openai:set_globals',(event)=>{
+    const prefs = event.detail?.globals?.widgetState?.privateContent;
+    if (!prefs || record()) return;
+    if (['all','real','mock'].includes(prefs.kind)) state.kind = prefs.kind;
+    if (['latest','accuracyHigh','accuracyLow'].includes(prefs.sort)) state.sort = prefs.sort;
+    if (typeof prefs.visible === 'boolean') state.visible = prefs.visible;
+    renderList();
+  });
+  render();
+})();
+</script>

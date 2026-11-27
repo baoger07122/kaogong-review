@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-private struct ExamRecordTarget: Identifiable { let recordID: String; var id: String { recordID } }
+private struct ExamRecordTarget: Hashable { let recordID: String }
 private struct ExamEditorTarget: Identifiable { let recordID: String?; var id: String { recordID ?? "new" } }
 private enum ExamTypeFilter: String, CaseIterable, Identifiable { case all = "全部", real = "真题", mock = "模拟卷"; var id: String { rawValue } }
 private enum ExamSort: String, CaseIterable, Identifiable { case latest = "最新", accuracyHigh = "正确率高→低", accuracyLow = "正确率低→高"; var id: String { rawValue } }
@@ -20,15 +20,6 @@ private enum ExamDisplayFormatting {
         return formatter.string(from: NSDecimalNumber(decimal: decimal)) ?? raw
     }
 
-    static func duration(_ seconds: Int) -> String {
-        let hours = seconds / 3_600
-        let minutes = (seconds % 3_600) / 60
-        let remainder = seconds % 60
-        if hours > 0 { return "\(hours)小时\(minutes)分\(remainder)秒" }
-        if minutes > 0 { return "\(minutes)分\(remainder)秒" }
-        return "\(remainder)秒"
-    }
-
     static func compactDuration(_ seconds: Int) -> String {
         guard seconds >= 0 else { return "—" }
         let hours = seconds / 3_600
@@ -40,17 +31,20 @@ private enum ExamDisplayFormatting {
     }
 }
 
+@MainActor
 struct ExamsView: View {
     @Environment(\.rootTabBarIsVisible) private var rootTabBarIsVisible
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "exams" }) private var records: [StoredRecord]
+    @AppStorage("native.exams.showsReviewNotes") private var showsReviewNotes = true
     @State private var selectedType: ExamTypeFilter = .all
     @State private var selectedSort: ExamSort = .latest
     @State private var editorTarget: ExamEditorTarget?
     @State private var attemptTarget: ExamRecordTarget?
+    @State private var expandedNotes: Set<String> = []
+    @State private var reviewDrafts = ExamReviewNoteDrafts()
 
-    private var allExams: [StoredRecord] { records.filter { $0.collection == "exams" } }
     private var statisticsExams: [StoredRecord] {
-        allExams.filter(matchesSelectedType)
+        records.filter(matchesSelectedType)
     }
     private var exams: [StoredRecord] {
         statisticsExams.sorted { left, right in
@@ -71,36 +65,44 @@ struct ExamsView: View {
     }
 
     var body: some View {
+        let visibleExams = exams
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                filterHeader
-                HStack(spacing: 10) {
+                listFilters
+                HStack(spacing: 5) {
                     metric("套卷次数", "\(statisticsExams.count)")
+                    Divider().frame(height: 26)
                     metric(scoreMetricTitle, averageScoreText)
+                    Divider().frame(height: 26)
                     metric("总体正确率", overallAccuracyText)
                 }
-                if exams.isEmpty {
+                .nativeCard(padding: 9)
+                if visibleExams.isEmpty {
                     NativeStatusCard(title: "暂无套卷", detail: "点击加号记录一次真题或模拟卷", systemImage: "doc.text", color: AppTheme.accent)
                 } else {
                     HStack {
+                        Text("套卷记录")
+                            .font(.system(size: 15, weight: .semibold))
+                            .accessibilityAddTraits(.isHeader)
                         Spacer(minLength: 0)
                         filterMenu(title: selectedSort.rawValue) {
                             ForEach(ExamSort.allCases) { value in Button(value.rawValue) { selectedSort = value } }
                         }
                     }
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(exams, id: \.recordID) { exam in
-                            Button { attemptTarget = ExamRecordTarget(recordID: exam.recordID) } label: {
-                                examCard(exam)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(visibleExams, id: \.recordID) { exam in
+                            if exam.recordID != visibleExams.first?.recordID { Divider() }
+                            examRow(exam)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 13)
+                    .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
                 }
-            }.padding(20)
+            }
+            .frame(maxWidth: 900)
+            .padding(16)
+            .padding(.bottom, 56)
+            .frame(maxWidth: .infinity)
         }
         .background(AppTheme.groupedBackground)
         .overlay(alignment: .bottomTrailing) {
@@ -131,10 +133,32 @@ struct ExamsView: View {
             NavigationStack { ExamEditorView(record: records.first { $0.collection == "exams" && $0.recordID == target.recordID }) }
                 .secondaryPageTabBarHidden()
         }
-        .sheet(item: $attemptTarget) { target in
-            NavigationStack { ExamAttemptDetailView(recordID: target.recordID) }
+        .navigationDestination(item: $attemptTarget) { target in
+            ExamAttemptDetailView(recordID: target.recordID, reviewDrafts: reviewDrafts)
                 .secondaryPageTabBarHidden()
         }
+    }
+
+    private var listFilters: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                filterHeader.frame(minWidth: 210)
+                reviewNoteVisibility.fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                filterHeader
+                reviewNoteVisibility.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+
+    private var reviewNoteVisibility: some View {
+        Toggle("显示备注", isOn: $showsReviewNotes)
+            .font(.system(size: 13))
+            .tint(AppTheme.accent)
+            .frame(minHeight: 44)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityIdentifier("exams-show-review-notes")
     }
 
     private var filterHeader: some View {
@@ -155,83 +179,123 @@ struct ExamsView: View {
         .background(Color.primary.opacity(0.055), in: Capsule())
     }
 
-    private func examCard(_ exam: StoredRecord) -> some View {
+    private func examRow(_ exam: StoredRecord) -> some View {
         let object = exam.indexObject ?? [:]
         let examDraft = ExamDraft(record: exam)
         let type = LibraryReviewSource.explicitValue(in: object) ?? .pending
         let score = ExamDisplayFormatting.score(object["score"])
         let maximum = ExamDisplayFormatting.score(object["maximumScore"])
-        let correctCount = examDraft.metrics.correctCount.map(String.init) ?? "—"
-        let resultCount = examDraft.metrics.totalQuestions.map(String.init) ?? "—"
-        let duration = examDraft.metrics.totalTimeSeconds.map(ExamDisplayFormatting.duration) ?? "—"
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                Text(type.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
-                    .padding(.horizontal, 7).padding(.vertical, 3).background((type == .pending ? AppTheme.warning : AppTheme.accent).opacity(0.08), in: Capsule())
-                Text(examDate(exam), format: .dateTime.year().month().day()).font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            HStack(alignment: .top, spacing: 8) {
-                Text(object["name"] as? String ?? "未命名套卷")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(score.isEmpty ? "—" : score)
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("分")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(AppTheme.accent)
-                    if !maximum.isEmpty {
-                        Text("/ \(maximum)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+        let metrics = examDraft.metrics
+        let correctCount = metrics.correctCount.map(String.init) ?? "—"
+        let resultCount = metrics.totalQuestions.map(String.init) ?? "—"
+        let accuracy = metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—"
+        let duration = metrics.totalTimeSeconds.map(ExamDisplayFormatting.compactDuration) ?? "—"
+        let note = ExamReviewNote(in: examDraft.original)
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                attemptTarget = ExamRecordTarget(recordID: exam.recordID)
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        NativeTagFlow(spacing: 5) {
+                            Text(type.title)
+                                .foregroundStyle(type == .pending ? AppTheme.warning : Color.secondary)
+                            Text(examDate(exam), format: .dateTime.year().month().day())
+                        }
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        Text(examDraft.name.nilIfEmpty ?? "未命名套卷")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        NativeTagFlow(spacing: 6) {
+                            Text("答对 \(correctCount)/\(resultCount)")
+                            Text("· \(accuracy)")
+                            Text("· \(duration)")
+                        }
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(score.nilIfEmpty ?? "—")
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                        if !maximum.isEmpty {
+                            Text("/\(maximum)")
+                                .font(.system(size: 11))
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.leading, 3)
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize(horizontal: true, vertical: false)
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 54)
+                .contentShape(Rectangle())
             }
-            HStack(spacing: 8) {
-                examMetric("\(correctCount)/\(resultCount)题", systemImage: "checkmark.circle")
-                examMetric(examDraft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—", systemImage: nil)
-                examMetric(duration, systemImage: "clock")
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("exam-open-\(exam.recordID)")
+            if showsReviewNotes, let summary = note.summary {
+                notePreview(note, summary: summary, recordID: exam.recordID)
             }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard(padding: 14)
+        .padding(.vertical, 8)
     }
 
-    private func examMetric(_ value: String, systemImage: String?) -> some View {
-        HStack(spacing: 5) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: 10, weight: .regular))
+    private func notePreview(_ note: ExamReviewNote, summary: String, recordID: String) -> some View {
+        let expanded = expandedNotes.contains(recordID)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if expanded { expandedNotes.remove(recordID) }
+                else { expandedNotes.insert(recordID) }
+            } label: {
+                HStack(spacing: 7) {
+                    Text("备注")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.accent)
+                    Text(summary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
-            Text(value)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .monospacedDigit()
+            .buttonStyle(.plain)
+            .accessibilityValue(expanded ? "已展开" : "已收起")
+            .accessibilityIdentifier("exam-review-preview-\(recordID)")
+            if expanded {
+                ExamReviewNoteContent(note: note)
+                    .padding(.bottom, 8)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .background(AppTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value).font(.system(size: 24, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.72)
+        VStack(spacing: 3) {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            Text(value).font(.system(size: 16, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.72)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard(padding: 12)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
     private func filterMenu<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         Menu(content: content) {
             HStack(spacing: 4) { Text(title); Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)) }
                 .font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 10).frame(height: 34).background(AppTheme.secondaryBackground, in: Capsule())
+                .padding(.horizontal, 10).frame(minHeight: 44)
         }
     }
 
@@ -301,6 +365,7 @@ private struct ExamSummaryMetric: Identifiable {
     var id: String { title }
 }
 
+@MainActor
 private struct ExamAttemptDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var records: [StoredRecord]
@@ -309,6 +374,7 @@ private struct ExamAttemptDetailView: View {
     @State private var showEdit = false
     @State private var showAddError = false
     let recordID: String
+    let reviewDrafts: ExamReviewNoteDrafts
 
     private let foldableSubjects = ["言语理解与表达", "判断推理"]
 
@@ -316,24 +382,35 @@ private struct ExamAttemptDetailView: View {
     private var draft: ExamDraft { ExamDraft(record: record) }
     private var object: [String: Any] { record?.indexObject ?? [:] }
     private var type: LibraryReviewSource { record.flatMap { LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) } ?? .pending }
-    private var linkedErrors: [StoredRecord] { records.filter { $0.collection == "errors" && $0.jsonObject?["sourceExamId"] as? String == recordID } }
+    private var linkedErrors: [StoredRecord] {
+        records.filter { error in
+            guard error.collection == "errors" else { return false }
+            let examID = (error.indexObject?["sourceExamId"] as? String)
+                ?? (error.reviewSourceMetadata["sourceExamId"] as? String)
+            return examID == recordID
+        }
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let horizontalPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
             let cardPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
-            let contentWidth = min(geometry.size.width - horizontalPadding * 2, 900) - cardPadding * 2
+            let contentWidth = max(1, min(geometry.size.width - horizontalPadding * 2, 900) - cardPadding * 2)
 
             ScrollView {
-                if record != nil {
+                if let record {
                     VStack(alignment: .leading, spacing: 12) {
-                        summaryCard(padding: cardPadding)
+                        summaryCard(padding: cardPadding, columns: contentWidth >= 480 ? 6 : 3)
+                        ExamReviewNoteCard(
+                            record: record, note: ExamReviewNote(in: record.jsonObject ?? [:]),
+                            padding: cardPadding, drafts: reviewDrafts
+                        )
                         resultCard(availableWidth: contentWidth, padding: cardPadding)
                         linkedErrorsCard(padding: cardPadding)
                     }
                     .padding(.horizontal, horizontalPadding)
                     .padding(.vertical, 14)
-                    .frame(maxWidth: 940)
+                    .frame(maxWidth: 900)
                     .frame(maxWidth: .infinity)
                 } else {
                     NativeStatusCard(title: "考试记录不存在", detail: "本次考试可能已被删除", systemImage: "doc.text", color: .secondary)
@@ -341,6 +418,7 @@ private struct ExamAttemptDetailView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(AppTheme.groupedBackground)
         }
         .navigationTitle("套卷记录")
@@ -377,8 +455,8 @@ private struct ExamAttemptDetailView: View {
     private var scoreValue: String { ExamDisplayFormatting.score(object["score"]).nilIfEmpty ?? "—" }
     private var maximumScoreValue: String { ExamDisplayFormatting.score(object["maximumScore"]).nilIfEmpty ?? "—" }
 
-    private func summaryCard(padding: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func summaryCard(padding: CGFloat, columns: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(type.title)
                     .font(.system(size: 12, weight: .medium))
@@ -391,39 +469,17 @@ private struct ExamAttemptDetailView: View {
             }
 
             Text(object["name"] as? String ?? "未命名套卷")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("本次得分")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(scoreValue)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(AppTheme.accent)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text("/ \(maximumScoreValue)")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), alignment: .leading, spacing: 14) {
-                    ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
-                }
+            Divider()
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .topLeading), count: columns),
+                      alignment: .leading, spacing: 8) {
+                detailMetric("本次得分", maximumScoreValue == "—" ? scoreValue : "\(scoreValue) / \(maximumScoreValue)",
+                             highlighted: true)
+                ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -637,19 +693,20 @@ private struct ExamAttemptDetailView: View {
     }
 
     private func linkedErrorsCard(padding: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let linkedErrors = self.linkedErrors
+        return VStack(alignment: .leading, spacing: 10) {
             Text("关联错题")
                 .font(.system(.title3, weight: .semibold))
                 .foregroundStyle(.primary)
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
-                    linkedErrorSummary
+                    linkedErrorSummary(count: linkedErrors.count)
                     Spacer(minLength: 0)
                     linkedErrorActions
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    linkedErrorSummary
+                    linkedErrorSummary(count: linkedErrors.count)
                     linkedErrorActions
                 }
             }
@@ -687,9 +744,9 @@ private struct ExamAttemptDetailView: View {
         .nativeCard(padding: padding)
     }
 
-    private var linkedErrorSummary: some View {
+    private func linkedErrorSummary(count: Int) -> some View {
         let wrongCount = draft.metrics.wrongCount.map(String.init) ?? "—"
-        return Text("本次答错 \(wrongCount) 题 · 已关联 \(linkedErrors.count) 题")
+        return Text("本次答错 \(wrongCount) 题 · 已关联 \(count) 题")
         .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -713,16 +770,16 @@ private struct ExamAttemptDetailView: View {
         .accessibilityLabel("关联错题")
     }
 
-    private func detailMetric(_ title: String, _ value: String) -> some View {
+    private func detailMetric(_ title: String, _ value: String, highlighted: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.primary)
-                .monospacedDigit()
-                .fixedSize(horizontal: false, vertical: true)
             Text(title)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(value)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(highlighted ? AppTheme.accent : Color.primary)
+                .monospacedDigit()
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

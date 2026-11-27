@@ -11,6 +11,23 @@ enum LibraryDoodleLayoutDirection: String, CaseIterable, Hashable {
     case vertical
 }
 
+@MainActor
+final class LibraryDoodleRecoveryBackgroundTask {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    init() {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "LibraryDoodleRecovery") { [weak self] in
+            Task { @MainActor in self?.finish() }
+        }
+    }
+
+    func finish() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+
 struct LibraryDoodleCanvasFrameOwner: Hashable {
     let targetRecordID: String
     let canvasHostID: String
@@ -68,6 +85,7 @@ final class LibraryDoodleSession: ObservableObject {
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool, Int, Int) async -> String?)?
     @Published private(set) var isDismissing = false
+    private var hidesOverlayWhileClosing = false
     private var splitDrawingBaseline: [String: String] = [:]
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
@@ -97,6 +115,14 @@ final class LibraryDoodleSession: ObservableObject {
         activeSplitDrawingPane != nil
     }
 
+    var showsDrawingOverlay: Bool {
+        isPresented && !isFinishingHiddenDrawing
+    }
+
+    var isFinishingHiddenDrawing: Bool {
+        isPresented && hidesOverlayWhileClosing && isDismissing
+    }
+
     func present(
         targetRecordID: String,
         drawingData: String,
@@ -112,6 +138,7 @@ final class LibraryDoodleSession: ObservableObject {
         deferCanvasActivation: Bool = false,
         canvasHostID: String? = nil,
         splitCanvasHostNamespace: String? = nil,
+        hidesOverlayWhileClosing: Bool = false,
         onSave: @escaping (String, Bool, Int, Int) async -> String?
     ) {
         guard !isPresented, !isDismissing else { return }
@@ -134,6 +161,7 @@ final class LibraryDoodleSession: ObservableObject {
         drawingLoadTask = nil
         presentationGeneration &+= 1
         saveError = nil
+        self.hidesOverlayWhileClosing = hidesOverlayWhileClosing
         isDismissing = false
         drawingLoadFailed = false
         drawingLoadDataReceived = false
@@ -293,7 +321,7 @@ final class LibraryDoodleSession: ObservableObject {
         let generation = presentationGeneration
         invalidateCanvasFrame()
         canvas.controller.commit { [weak self] in
-            guard let self, self.isPresented,
+            guard let self, self.isPresented, !self.isDismissing,
                   self.presentationGeneration == generation,
                   self.activeSplitDrawingPane != nil else { return }
             self.invalidateCanvasFrame()
@@ -336,9 +364,9 @@ final class LibraryDoodleSession: ObservableObject {
         splitDrawingBaseline
     }
 
-    func markSplitDrawingValuesSaved() {
-        splitDrawingBaseline = splitDrawingValues
-        hasPendingSplitDrawingChanges = false
+    func markSplitDrawingValuesSaved(_ values: [String: String]) {
+        splitDrawingBaseline.merge(values) { _, savedValue in savedValue }
+        hasPendingSplitDrawingChanges = !pendingSplitDrawingValues().isEmpty
     }
 
     static func splitDrawingStorageKey(
@@ -440,22 +468,35 @@ final class LibraryDoodleSession: ObservableObject {
             completion?(nil)
             return
         }
+        let closeStart = ProcessInfo.processInfo.systemUptime
+        LibraryPerformanceLog.mark("doodle.close-tap", since: closeStart)
+        // Keep the last stroke and its save alive if the app backgrounds during close.
+        let backgroundTask = hidesOverlayWhileClosing
+            && (hasUnsavedDrawingChanges || canvas.controller.hasPendingDrawingPublish)
+            ? LibraryDoodleRecoveryBackgroundTask() : nil
         isDismissing = true
+        if hidesOverlayWhileClosing {
+            LibraryPerformanceLog.mark("doodle.overlay-hidden", since: closeStart)
+        }
         saveError = nil
         let handler = saveHandler
         let dismissalGeneration = presentationGeneration
         let dismissalTargetRecordID = targetRecordID
         let dismissalLoadRevision = canvas.controller.drawingLoadRevision
-        let closeStart = ProcessInfo.processInfo.systemUptime
-        LibraryPerformanceLog.mark("doodle.close-tap", since: closeStart)
         let completeSnapshot: () -> Void = { [weak self] in
             guard let self,
                   self.isPresented,
                   self.presentationGeneration == dismissalGeneration,
-                  self.targetRecordID == dismissalTargetRecordID else { return }
+                  self.targetRecordID == dismissalTargetRecordID else {
+                backgroundTask?.finish()
+                return
+            }
             guard self.canvas.controller.drawingLoadRevision == dismissalLoadRevision else {
+                backgroundTask?.finish()
+                let error = "涂鸦画布已切换，未能安全结束当前涂鸦。"
+                self.saveError = error
                 self.isDismissing = false
-                completion?("涂鸦画布已切换，未能安全结束当前涂鸦。")
+                completion?(error)
                 return
             }
             let drawingData = self.canvas.drawingData
@@ -468,9 +509,12 @@ final class LibraryDoodleSession: ObservableObject {
             // record save is deliberately scheduled after the state change so a
             // JSON/SwiftData write cannot block the visible close feedback.
             self.finishDismissal()
-            LibraryPerformanceLog.mark("doodle.overlay-hidden", since: closeStart)
+            if !self.hidesOverlayWhileClosing {
+                LibraryPerformanceLog.mark("doodle.overlay-hidden", since: closeStart)
+            }
 
             guard hasChanges else {
+                backgroundTask?.finish()
                 self.saveHandler = nil
                 self.clearSplitDrawingSession(keepingLoadedCanvasValues: true)
                 self.isDismissing = false
@@ -480,6 +524,7 @@ final class LibraryDoodleSession: ObservableObject {
             }
 
             Task { @MainActor [weak self] in
+                defer { backgroundTask?.finish() }
                 guard let self,
                       self.presentationGeneration == dismissalGeneration,
                       self.targetRecordID == dismissalTargetRecordID else { return }
@@ -857,8 +902,8 @@ struct LibraryDoodleContentLayer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .frame(minHeight: minimumCanvasHeight)
                 .contentShape(Rectangle())
-                .opacity(session.isPresented ? 1 : 0)
-                .allowsHitTesting(session.isPresented && session.isCanvasActivationReady)
+                .opacity(session.showsDrawingOverlay ? 1 : 0)
+                .allowsHitTesting(session.showsDrawingOverlay && session.isCanvasActivationReady)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("library-doodle-content-layer-\(targetRecordID)")
             }
@@ -969,7 +1014,7 @@ struct LibraryDoodleSplitContentLayer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .frame(minHeight: minimumCanvasHeight)
                 .contentShape(Rectangle())
-                .allowsHitTesting(isActiveTarget)
+                .allowsHitTesting(session.showsDrawingOverlay && isActiveTarget)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("library-doodle-split-layer-\(pane.rawValue)-\(targetRecordID)")
             } else {

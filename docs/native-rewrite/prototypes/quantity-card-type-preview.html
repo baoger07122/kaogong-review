@@ -1,0 +1,139 @@
+<section id="quantity-card-type-preview" class="show-types" aria-label="数量关系错题卡片改版预览">
+  <h2>数量关系</h2>
+  <div class="viz-controls quantity-filters" role="group" aria-label="题型">
+    <button class="btn" type="button" data-filter="ratio" aria-pressed="false">和差倍比</button>
+    <button class="btn" type="button" data-filter="geometry" aria-pressed="false">几何问题</button>
+    <button class="btn" type="button" data-filter="counting" aria-pressed="false">排列组合 / 概率</button>
+    <button class="btn" type="button" data-filter="travel" aria-pressed="false">行程问题</button>
+  </div>
+  <div class="quantity-grid" aria-live="polite">
+    <article class="card quantity-question" data-type="ratio">
+      <header class="quantity-meta">
+        <span class="quantity-knowledge text-small">
+          <i data-lucide="lightbulb" aria-hidden="true"></i>
+          <span>不定方程组 | 赋零法</span>
+        </span>
+        <span class="quantity-type text-small text-muted">和差倍比</span>
+      </header>
+      <p>某企业采购甲、乙和丙三种不同配置的电脑。已知甲、乙、丙各 1 台共 2.3 万元，2 台甲加 1 台乙……</p>
+      <p class="quantity-note text-small"><strong>提醒</strong><span class="text-muted">不定方程组中，未知数可能是小数时，可考虑赋零法。</span></p>
+    </article>
+    <article class="card quantity-question" data-type="geometry">
+      <header class="quantity-meta">
+        <span class="quantity-type text-small text-muted">几何问题</span>
+      </header>
+      <p>一个白色圆柱体零件的底面半径是高的 1.5 倍，现将其表面涂上黑漆，沿下图所示虚线方向……</p>
+      <p class="quantity-note text-small"><strong>错因</strong><span class="quantity-cause">忘记了切割以后里面的长方形宽度就是直径</span></p>
+    </article>
+    <article class="card quantity-question" data-type="counting">
+      <header class="quantity-meta">
+        <span class="quantity-type text-small text-muted">排列组合 / 概率</span>
+      </header>
+      <p>企业将 15 个招聘名额分配到甲、乙、丙、丁四个分公司。要求每个分公司至少分到 1 个名额……</p>
+      <p class="quantity-note text-small"><strong>错因</strong><span class="quantity-cause">没有排甲乙丙丁之间的顺序</span></p>
+    </article>
+    <article class="card quantity-question" data-type="travel">
+      <header class="quantity-meta">
+        <span class="quantity-knowledge text-small">
+          <i data-lucide="lightbulb" aria-hidden="true"></i>
+          <span>路程比、速度比、时间比</span>
+        </span>
+        <span class="quantity-type text-small text-muted">行程问题</span>
+      </header>
+      <p>小赵开车从 A 地前往 B 地，前 25% 的路程匀速行驶 1 小时 10 分，此后匀速加快车速……</p>
+      <p class="quantity-note text-small"><strong>错因</strong><span class="quantity-cause">忘了路程相等时，速度比是时间比的反比</span></p>
+    </article>
+  </div>
+</section>
+
+<style>
+  #quantity-card-type-preview {
+    display: grid;
+    gap: calc(var(--font-size-base) * .75);
+  }
+  #quantity-card-type-preview .quantity-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(var(--font-size-base) * .75);
+    align-items: start;
+  }
+  #quantity-card-type-preview .quantity-question {
+    display: grid;
+    min-width: 0;
+    gap: calc(var(--font-size-base) * .65);
+  }
+  #quantity-card-type-preview .quantity-question[hidden],
+  #quantity-card-type-preview:not(.show-types) .quantity-meta:has(> .quantity-type:only-child),
+  #quantity-card-type-preview:not(.show-types) .quantity-type {
+    display: none;
+  }
+  #quantity-card-type-preview .quantity-meta {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: calc(var(--font-size-base) * .35) calc(var(--font-size-base) * .65);
+  }
+  #quantity-card-type-preview .quantity-type {
+    margin-inline-start: auto;
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+  #quantity-card-type-preview .quantity-knowledge {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--font-size-base) * .3);
+    color: color-mix(in srgb, var(--blue) 70%, var(--foreground));
+  }
+  #quantity-card-type-preview .quantity-knowledge span {
+    border: 1px solid color-mix(in srgb, var(--blue) 55%, var(--border));
+    border-radius: 5px;
+    padding: 2px 6px;
+    overflow-wrap: anywhere;
+  }
+  #quantity-card-type-preview .quantity-note {
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--font-size-base) * .45);
+  }
+  #quantity-card-type-preview .quantity-note strong {
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  #quantity-card-type-preview .quantity-cause {
+    color: color-mix(in srgb, var(--orange) 48%, var(--foreground));
+    background: color-mix(in srgb, var(--orange) 12%, var(--card));
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+  @media (max-width: 510px) {
+    #quantity-card-type-preview .quantity-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>
+
+<script>
+  (() => {
+    const root = document.getElementById('quantity-card-type-preview');
+    const buttons = [...root.querySelectorAll('[data-filter]')];
+    const cards = [...root.querySelectorAll('[data-type]')];
+    const applyFilter = (filter) => {
+      root.classList.toggle('show-types', filter === 'all');
+      for (const button of buttons) {
+        button.setAttribute('aria-pressed', String(button.dataset.filter === filter));
+      }
+      for (const card of cards) {
+        card.hidden = filter !== 'all' && card.dataset.type !== filter;
+      }
+    };
+    for (const button of buttons) {
+      button.addEventListener('click', () => {
+        const selected = button.getAttribute('aria-pressed') === 'true';
+        applyFilter(selected ? 'all' : button.dataset.filter);
+      });
+    }
+    applyFilter('all');
+  })();
+</script>

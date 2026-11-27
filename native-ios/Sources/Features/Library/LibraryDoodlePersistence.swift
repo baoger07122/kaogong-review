@@ -10,16 +10,21 @@ private struct LibraryDoodlePreparedWrite: Sendable {
 
 @MainActor
 enum LibraryDoodlePersistence {
+    typealias CommitObserver = (LibraryDetailPayloadKey, LibraryDecodedJSONPayload) -> Void
+
     nonisolated static let flashcardDrawingsKey = "flashcardDoodleDrawings"
 
     @discardableResult
     static func saveSplitDrawings(
         record: StoredRecord,
         context: ModelContext,
-        drawingValues: [String: String]
+        drawingValues: [String: String],
+        onCommitted: CommitObserver? = nil
     ) async -> String? {
         guard !drawingValues.isEmpty else { return nil }
-        return await saveOverlayDrawing(record: record, context: context, splitDrawingValues: drawingValues)
+        return await saveOverlayDrawing(
+            record: record, context: context, splitDrawingValues: drawingValues, onCommitted: onCommitted
+        )
     }
 
     static func saveFlashcardDrawing(
@@ -35,7 +40,8 @@ enum LibraryDoodlePersistence {
         record: StoredRecord,
         context: ModelContext,
         splitDrawingValues: [String: String]? = nil,
-        flashcardDrawing: (key: String, data: String)? = nil
+        flashcardDrawing: (key: String, data: String)? = nil,
+        onCommitted: CommitObserver? = nil
     ) async -> String? {
         for _ in 0..<3 {
             guard record.modelContext != nil, !record.isDeleted else { return "涂鸦未保存：题目记录已不存在。" }
@@ -49,7 +55,7 @@ enum LibraryDoodlePersistence {
                 return "涂鸦数据格式无效，未保存。"
             }
             do {
-                let committed = try await commit(write, to: record, in: context)
+                let committed = try await commit(write, to: record, in: context, onCommitted: onCommitted)
                 if committed { return nil }
             } catch {
                 return "涂鸦未保存：\(error.localizedDescription)"
@@ -63,7 +69,9 @@ enum LibraryDoodlePersistence {
         record: StoredRecord,
         context: ModelContext,
         drawingData: String,
-        legacyPreviewCleared: Bool
+        legacyPreviewCleared: Bool,
+        savesPreviewTogether: Bool = false,
+        onCommitted: CommitObserver? = nil
     ) async -> String? {
         for _ in 0..<3 {
             guard record.modelContext != nil, !record.isDeleted else { return "涂鸦未保存：题目记录已不存在。" }
@@ -72,18 +80,19 @@ enum LibraryDoodlePersistence {
                 base: base,
                 collection: record.collection,
                 drawingData: drawingData,
-                legacyPreviewCleared: legacyPreviewCleared
+                legacyPreviewCleared: legacyPreviewCleared,
+                savesPreviewTogether: savesPreviewTogether
             ) else {
                 return "涂鸦数据格式无效，未保存。"
             }
             do {
-                let committed = try await commit(write, to: record, in: context)
+                let committed = try await commit(write, to: record, in: context, onCommitted: onCommitted)
                 guard committed else { continue }
             } catch {
                 return "涂鸦未保存：\(error.localizedDescription)"
             }
 
-            guard write.decoded != nil, !drawingData.isEmpty else { return nil }
+            guard !savesPreviewTogether, write.decoded != nil, !drawingData.isEmpty else { return nil }
             Task { @MainActor in
                 await Task.yield()
                 let previewBase = record.payload
@@ -113,7 +122,12 @@ enum LibraryDoodlePersistence {
         return "题目内容刚刚发生变化，涂鸦未覆盖最新内容，请重试。"
     }
 
-    private static func commit(_ write: LibraryDoodlePreparedWrite, to record: StoredRecord, in context: ModelContext) async throws -> Bool {
+    private static func commit(
+        _ write: LibraryDoodlePreparedWrite,
+        to record: StoredRecord,
+        in context: ModelContext,
+        onCommitted: CommitObserver? = nil
+    ) async throws -> Bool {
         guard record.modelContext != nil, !record.isDeleted, record.payload == write.basePayload else { return false }
         guard let decoded = write.decoded else { return true }
         let updatedAt = Date.now
@@ -123,6 +137,7 @@ enum LibraryDoodlePersistence {
             )
         }
         guard record.modelContext != nil, !record.isDeleted, record.payload == write.basePayload else { return false }
+        let previousKey = LibraryDetailPayloadKey(record: record)
         let previousIndex = record.indexPayload
         let previousVersion = record.updatedAt
         record.replacePayload(write.payload, indexPayload: write.indexPayload)
@@ -134,6 +149,7 @@ enum LibraryDoodlePersistence {
             record.updatedAt = previousVersion
             throw error
         }
+        onCommitted?(previousKey, decoded)
         return true
     }
 
@@ -142,6 +158,7 @@ enum LibraryDoodlePersistence {
         collection: String,
         drawingData: String? = nil,
         legacyPreviewCleared: Bool = false,
+        savesPreviewTogether: Bool = false,
         splitDrawingValues: [String: String]? = nil,
         flashcardDrawing: (key: String, data: String)? = nil
     ) async -> LibraryDoodlePreparedWrite? {
@@ -191,6 +208,13 @@ enum LibraryDoodlePersistence {
                 } else {
                     object.removeValue(forKey: "drawingData")
                     object.removeValue(forKey: "drawingDataURL")
+                    if savesPreviewTogether {
+                        let preview = PencilDrawingCompatibility.previewDataURL(encodedData: drawingData)
+                        if !preview.isEmpty {
+                            object["drawingPreview"] = preview
+                            object["doodle"] = preview
+                        }
+                    }
                 }
             }
             guard changed else {

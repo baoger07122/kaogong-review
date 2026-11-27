@@ -533,10 +533,11 @@ struct LibraryView: View {
                             onWarmDetail: warmErrorDetail,
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
                             hidesQuantityTypeLabel: isQuantityContext
-                                && LibraryQuantityTypeSelectionPolicy.concreteType(
-                                    selected: selectedQuantityType,
-                                    availableTypes: quantityQuestionTypes
-                                ) != nil,
+                                && (selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle
+                                    || LibraryQuantityTypeSelectionPolicy.concreteType(
+                                        selected: selectedQuantityType,
+                                        availableTypes: quantityQuestionTypes
+                                    ) != nil),
                             usesMemoryCardPresentation: isGraphReasoningContext && selectedGraphDisplayMode == "memoryCards"
                         )
                     }

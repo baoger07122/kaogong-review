@@ -101,6 +101,7 @@ private struct LibraryDetailPageVersion: Equatable {
     let showsMaterial: Bool
     let splitDirection: LibraryDoodleLayoutDirection
     let drawingPane: LibraryDoodlePane?
+    let isClosingDoodle: Bool
     let redoEnabled: Bool
     let redoAttempt: LibraryRedoAttempt
     let showsDelete: Bool
@@ -118,23 +119,6 @@ private enum LibraryDetailPayloadLoadState: Equatable {
     case loading(key: LibraryDetailPayloadKey, requestID: UUID)
     case loaded(key: LibraryDetailPayloadKey)
     case failed(key: LibraryDetailPayloadKey?, requestID: UUID, message: String)
-}
-
-@MainActor
-private final class LibraryDoodleRecoveryBackgroundTask {
-    private var identifier: UIBackgroundTaskIdentifier = .invalid
-
-    init() {
-        identifier = UIApplication.shared.beginBackgroundTask(withName: "LibraryDoodleRecovery") { [weak self] in
-            Task { @MainActor in self?.finish() }
-        }
-    }
-
-    func finish() {
-        guard identifier != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(identifier)
-        identifier = .invalid
-    }
 }
 
 struct LibraryRecordDetailView: View {
@@ -199,6 +183,7 @@ struct LibraryRecordDetailView: View {
     @State private var splitDoodleLayoutDirection: LibraryDoodleLayoutDirection = .vertical
     @State private var splitDoodleErrorMessage: String?
     @State private var backgroundDoodleSaveRequestID: UUID?
+    @State private var backgroundDoodleSaveTask: Task<Void, Never>?
     @State private var lastBackgroundDoodleSaveKey: String?
     @State private var pendingEditorRequestID: String?
     @State private var pendingEditorTransitionRecordID: String?
@@ -388,6 +373,7 @@ struct LibraryRecordDetailView: View {
         detailContent
             .navigationTitle(detailNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(doodleSession.isFinishingHiddenDrawing)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     detailPrincipalTitle
@@ -484,6 +470,7 @@ struct LibraryRecordDetailView: View {
             showsMaterial: showsDetachedDataAnalysisMaterial,
             splitDirection: splitDoodleLayoutDirection,
             drawingPane: doodleSession.activeSplitDrawingPane,
+            isClosingDoodle: doodleSession.isDismissing,
             redoEnabled: isRedoPractice,
             redoAttempt: redoAttempt,
             showsDelete: showDelete,
@@ -537,16 +524,22 @@ struct LibraryRecordDetailView: View {
                     detailScrollView(availableWidth: availableWidth)
                 }
                 detailModal
-                    .disabled(displaysPreviousQuestionSnapshot)
-                    .allowsHitTesting(!displaysPreviousQuestionSnapshot)
+                    .disabled(blocksDetailContentActions)
+                    .allowsHitTesting(!blocksDetailContentActions)
             }
             .onAppear {
-                if !doodleSession.isPresented || !doodleSession.isSplitDrawingSession {
+                if !doodleSession.isDismissing,
+                   !doodleSession.isPresented || !doodleSession.isSplitDrawingSession {
                     splitDoodleLayoutDirection = layoutDirection
                 }
             }
             .onChange(of: layoutDirection) { _, newDirection in
                 handleSplitDoodleLayoutChange(to: newDirection)
+            }
+            .onChange(of: doodleSession.isDismissing) { _, isDismissing in
+                if !isDismissing, !doodleSession.isPresented {
+                    handleSplitDoodleLayoutChange(to: layoutDirection)
+                }
             }
         }
     }
@@ -652,6 +645,7 @@ struct LibraryRecordDetailView: View {
                 Spacer()
                 Button("收起材料") { isMaterialPaneOpen = false }
                     .font(.system(size: 12, weight: .medium))
+                    .disabled(doodleSession.isFinishingHiddenDrawing)
                     .accessibilityIdentifier("library-data-analysis-material-close")
             }
             .padding(.horizontal, 12)
@@ -670,7 +664,8 @@ struct LibraryRecordDetailView: View {
                         targetRecordID: activeRecordID,
                         pane: .material,
                         layoutDirection: splitDoodleLayoutDirection,
-                        drawingData: splitDoodleBinding(for: .material)
+                        drawingData: splitDoodleBinding(for: .material),
+                        hostNamespace: "library-record-detail"
                     )
                 }
             }
@@ -733,8 +728,8 @@ struct LibraryRecordDetailView: View {
                     reviewContent(dateBlock)
                 }
             }
-            .disabled(displaysPreviousQuestionSnapshot)
-            .allowsHitTesting(!displaysPreviousQuestionSnapshot)
+            .disabled(blocksDetailContentActions)
+            .allowsHitTesting(!blocksDetailContentActions)
             .padding(.horizontal, 16)
             .padding(.top, 5)
             .padding(.bottom, 14)
@@ -798,17 +793,14 @@ struct LibraryRecordDetailView: View {
     }
 
     private func handleSplitDoodleLayoutChange(to newDirection: LibraryDoodleLayoutDirection) {
-        guard newDirection != splitDoodleLayoutDirection else { return }
+        guard newDirection != splitDoodleLayoutDirection, !doodleSession.isDismissing else { return }
         guard isMaterialPaneOpen, doodleSession.isPresented, doodleSession.isSplitDrawingSession else {
             splitDoodleLayoutDirection = newDirection
             return
         }
 
-        doodleSession.commitCurrentDrawing {
-            doodleSession.dismiss(reopenOnSaveFailure: false) { error in
-                splitDoodleLayoutDirection = newDirection
-                if let error { splitDoodleErrorMessage = error }
-            }
+        doodleSession.dismiss(reopenOnSaveFailure: false) { error in
+            if let error { splitDoodleErrorMessage = error }
         }
     }
 
@@ -844,13 +836,16 @@ struct LibraryRecordDetailView: View {
     private func saveSplitDoodleChanges(record: StoredRecord, context: ModelContext) async -> String? {
         let changedValues = doodleSession.pendingSplitDrawingValues()
         guard !changedValues.isEmpty else { return nil }
+        let generation = doodleSession.presentationGeneration
         guard let error = await LibraryDoodlePersistence.saveSplitDrawings(
             record: record,
             context: context,
-            drawingValues: changedValues
+            drawingValues: changedValues,
+            onCommitted: adoptCommittedDoodle
         ) else {
-            if doodleSession.splitDrawingRecordID == record.compoundID {
-                doodleSession.markSplitDrawingValuesSaved()
+            if doodleSession.splitDrawingRecordID == record.compoundID,
+               doodleSession.presentationGeneration == generation {
+                doodleSession.markSplitDrawingValuesSaved(changedValues)
             }
             return nil
         }
@@ -913,7 +908,8 @@ struct LibraryRecordDetailView: View {
         HStack(spacing: 8) {
             LibraryReadingModeToggle(
                 isRedoPractice: $redoPracticeEnabled,
-                isEnabled: supportsRedoMode && !isPayloadLoading && !payloadDecodeFailed,
+                isEnabled: supportsRedoMode && !isPayloadLoading && !payloadDecodeFailed
+                    && !doodleSession.isFinishingHiddenDrawing,
                 placement: .detail
             )
 
@@ -971,7 +967,11 @@ struct LibraryRecordDetailView: View {
     }
 
     private var canOpenDoodle: Bool {
-        !isPayloadLoading && !payloadDecodeFailed
+        !isPayloadLoading && !payloadDecodeFailed && !doodleSession.isDismissing
+    }
+
+    private var blocksDetailContentActions: Bool {
+        displaysPreviousQuestionSnapshot || doodleSession.isFinishingHiddenDrawing
     }
 
     private var doodleToolbarButton: some View {
@@ -2743,8 +2743,10 @@ struct LibraryRecordDetailView: View {
                 ? "library-record-detail|\(targetID)|split|\(splitDoodleLayoutDirection.rawValue)|material"
                 : "library-record-detail|\(targetID)",
             splitCanvasHostNamespace: opensSplitDoodle ? "library-record-detail" : nil,
+            hidesOverlayWhileClosing: kind == .errors,
             onSave: { updatedDrawing, legacyPreviewCleared, _, _ in
                 guard let targetRecord else { return "涂鸦未保存：题目记录已不存在。" }
+                await backgroundDoodleSaveTask?.value
                 if targetSession.hasPendingSplitDrawingChanges,
                    targetSession.splitDrawingRecordID == targetID,
                    let error = await saveSplitDoodleChanges(record: targetRecord, context: targetContext) {
@@ -2755,7 +2757,9 @@ struct LibraryRecordDetailView: View {
                     record: targetRecord,
                     context: targetContext,
                     drawingData: updatedDrawing,
-                    legacyPreviewCleared: legacyPreviewCleared
+                    legacyPreviewCleared: legacyPreviewCleared,
+                    savesPreviewTogether: kind == .errors,
+                    onCommitted: kind == .errors ? adoptCommittedDoodle : nil
                 )
             }
         )
@@ -2763,6 +2767,7 @@ struct LibraryRecordDetailView: View {
 
     private func persistDoodleForBackground() {
         guard doodleSession.isPresented,
+              !doodleSession.isFinishingHiddenDrawing,
               !doodleSession.isLoadingDrawing,
               doodleSession.targetRecordID == activeRecordID,
               let targetRecord = record,
@@ -2770,27 +2775,42 @@ struct LibraryRecordDetailView: View {
         let targetID = activeRecordID
         let saveKey = "\(targetID)|\(doodleSession.presentationGeneration)|\(doodleSession.userDrawingRevision)|\(doodleSession.hasPendingSplitDrawingChanges)"
         guard lastBackgroundDoodleSaveKey != saveKey,
-              backgroundDoodleSaveRequestID == nil else { return }
+              backgroundDoodleSaveRequestID == nil,
+              backgroundDoodleSaveTask == nil else { return }
 
         let requestID = UUID()
         backgroundDoodleSaveRequestID = requestID
         let backgroundTask = LibraryDoodleRecoveryBackgroundTask()
         let targetSession = doodleSession
         let targetContext = modelContext
-        targetSession.commitCurrentDrawing { [self] in
-            Task { @MainActor in
-                defer { backgroundTask.finish() }
-                guard backgroundDoodleSaveRequestID == requestID,
-                      targetSession.targetRecordID == targetID else { return }
+        let saveSnapshot: () -> Void = { [self] in
+            guard backgroundDoodleSaveRequestID == requestID,
+                  targetSession.targetRecordID == targetID,
+                  !targetSession.isDismissing else {
+                if backgroundDoodleSaveRequestID == requestID { backgroundDoodleSaveRequestID = nil }
+                backgroundTask.finish()
+                return
+            }
+            let isSplitDrawing = targetSession.isSplitDrawingSession
+            let drawingData = targetSession.canvas.drawingData
+            let legacyPreviewCleared = targetSession.canvas.controller.legacyPreviewCleared
+            backgroundDoodleSaveTask = Task { @MainActor in
+                defer {
+                    if backgroundDoodleSaveRequestID == requestID { backgroundDoodleSaveRequestID = nil }
+                    backgroundDoodleSaveTask = nil
+                    backgroundTask.finish()
+                }
                 let error: String?
-                if targetSession.hasPendingSplitDrawingChanges {
+                if isSplitDrawing {
                     error = await saveSplitDoodleChanges(record: targetRecord, context: targetContext)
                 } else {
                     error = await LibraryDoodlePersistence.save(
                         record: targetRecord,
                         context: targetContext,
-                        drawingData: targetSession.canvas.drawingData,
-                        legacyPreviewCleared: targetSession.canvas.controller.legacyPreviewCleared
+                        drawingData: drawingData,
+                        legacyPreviewCleared: legacyPreviewCleared,
+                        savesPreviewTogether: kind == .errors,
+                        onCommitted: kind == .errors ? adoptCommittedDoodle : nil
                     )
                 }
                 if let error {
@@ -2798,8 +2818,12 @@ struct LibraryRecordDetailView: View {
                 } else {
                     lastBackgroundDoodleSaveKey = saveKey
                 }
-                backgroundDoodleSaveRequestID = nil
             }
+        }
+        if targetSession.canvas.controller.hasPendingDrawingPublish {
+            targetSession.commitCurrentDrawing(saveSnapshot)
+        } else {
+            saveSnapshot()
         }
     }
 
@@ -2814,6 +2838,15 @@ struct LibraryRecordDetailView: View {
 
     private var activePayloadLoadTrigger: LibraryDetailLoadTrigger {
         LibraryDetailLoadTrigger(payloadKey: activePayloadKey, retryCount: payloadRetryCount)
+    }
+
+    private func adoptCommittedDoodle(_ previousKey: LibraryDetailPayloadKey, _ payload: LibraryDecodedJSONPayload) {
+        guard loadedPayloadKey == previousKey,
+              let key = activePayloadKey,
+              key.recordID == previousKey.recordID else { return }
+        loadedPayloadObject = payload.object
+        loadedPayloadKey = key
+        payloadLoadState = .loaded(key: key)
     }
 
     private var activePayloadLoadRequestID: UUID? {

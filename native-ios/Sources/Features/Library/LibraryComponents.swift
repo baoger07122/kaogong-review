@@ -688,35 +688,11 @@ private struct LibraryErrorRecordCard: View {
 
     @ViewBuilder
     private var questionKnowledgeHeader: some View {
-        if isQuantityRelations {
-            if showsQuantityTypeInHeader || !snapshot.cardTopTags.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    if showsQuantityTypeInHeader {
-                        knowledgeHeaderTag(quantityQuestionTypeTitle)
-                    }
-                    if !snapshot.cardTopTags.isEmpty {
-                        cardTagsLine(snapshot.cardTopTags)
-                    }
-                }
-            }
+        if showsQuantityTypeInHeader {
+            LibraryQuantityCardHeader(module: snapshot.record.module, tags: snapshot.cardTopTags)
         } else if !snapshot.cardTopTags.isEmpty {
-            cardTagsLine(snapshot.cardTopTags)
+            LibraryKnowledgePointTagCloud(cardTags: snapshot.cardTopTags)
         }
-    }
-
-    private func cardTagsLine(_ values: [LibraryCardTopTag]) -> some View {
-        LibraryKnowledgePointTagCloud(cardTags: values)
-    }
-
-    private func knowledgeHeaderTag(_ value: String) -> some View {
-        Text(value)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(AppTheme.accent)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private var isLogicFill: Bool {
@@ -762,11 +738,73 @@ private struct LibraryErrorRecordCard: View {
         .padding(.vertical, 3)
         .background(AppTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
-    private var quantityQuestionTypeTitle: String {
-        let module = snapshot.record.module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return module.isEmpty ? "未分类" : module
+}
+
+private struct LibraryQuantityCardHeader: View {
+    private static let titleSize: CGFloat = 11
+    private static let columnSpacing: CGFloat = 8
+    private static let rowSpacing: CGFloat = 4
+    private static let titleInset = LibraryKnowledgePointTagLayout.verticalPadding
+
+    let module: String?
+    let tags: [LibraryCardTopTag]
+
+    var body: some View {
+        if tags.isEmpty {
+            trailingTitle
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    LibraryKnowledgePointTagCloud(cardTags: tags)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: Self.columnSpacing)
+                    typeLabel
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.top, Self.titleInset)
+                }
+                VStack(alignment: .leading, spacing: Self.rowSpacing) {
+                    LibraryKnowledgePointTagCloud(cardTags: tags)
+                    trailingTitle
+                }
+            }
+        }
     }
 
+    private var typeLabel: some View {
+        let title = Self.title(for: module)
+        return Text(title)
+            .font(.system(size: Self.titleSize))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .accessibilityLabel("题型，\(title)")
+    }
+
+    private var trailingTitle: some View {
+        typeLabel.frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private static func title(for module: String?) -> String {
+        let name = module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? LibraryQuantityTypeSelectionPolicy.unclassifiedTitle : name
+    }
+
+    static func estimatedHeight(module: String?, tagLabels: [String], width: CGFloat) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: titleSize)
+        let titleHeight = ceil(font.lineHeight)
+        guard !tagLabels.isEmpty else { return titleHeight }
+        let titleWidth = ceil((title(for: module) as NSString).size(withAttributes: [.font: font]).width)
+        let accessoryWidth = LibraryKnowledgePointTagCloud.cardLeadingAccessoryWidth
+        let widestTag = tagLabels.map {
+            ceil(($0 as NSString).size(withAttributes: [.font: LibraryKnowledgePointTagLayout.font]).width)
+        }.max() ?? 0
+        let sideBySide = widestTag + LibraryKnowledgePointTagLayout.horizontalPadding * 2
+            + accessoryWidth + columnSpacing + titleWidth <= width
+        let tagHeight = LibraryKnowledgePointTagLayout.estimatedHeight(
+            for: tagLabels, width: width - accessoryWidth - (sideBySide ? columnSpacing + titleWidth : 0)
+        )
+        return sideBySide ? max(tagHeight, titleHeight + titleInset) : tagHeight + rowSpacing + titleHeight
+    }
 }
 
 private struct LibraryLogicComparisonSeparator: View {
@@ -1350,14 +1388,10 @@ struct LibraryMasonryGrid: View {
             width: tagTextWidth
         )
         var sections: [CGFloat] = []
-        if record.record.subject == "数量关系" {
-            var quantityHeaderHeight: CGFloat = 0
-            if !hidesQuantityTypeLabel { quantityHeaderHeight += 21 }
-            if !record.cardTopTagLabels.isEmpty {
-                if quantityHeaderHeight > 0 { quantityHeaderHeight += 6 }
-                quantityHeaderHeight += knowledgePointsHeight
-            }
-            if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
+        if record.record.subject == "数量关系", !hidesQuantityTypeLabel {
+            sections.append(LibraryQuantityCardHeader.estimatedHeight(
+                module: record.record.module, tagLabels: record.cardTopTagLabels, width: contentWidth
+            ))
         } else if !record.cardTopTagLabels.isEmpty {
             sections.append(knowledgePointsHeight)
         }

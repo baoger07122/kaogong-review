@@ -120,6 +120,7 @@ struct RootTabView: View {
     private func selectTab(_ tab: RootTab) {
         guard RootTab.availableTabs.contains(tab) else { return }
         guard selection != tab else { return }
+        guard !libraryDoodleSession.isFinishingHiddenDrawing else { return }
         if libraryDoodleSession.isPresented {
             libraryDoodleSession.dismiss(reopenOnSaveFailure: false) { error in
                 if let error { NativePerformanceLog.event("doodle tab exit: \(error)") }
@@ -179,7 +180,7 @@ private struct LibraryDoodleRootOverlay: View {
 
     var body: some View {
         Group {
-            if session.isPresented {
+            if session.showsDrawingOverlay {
                 // The PencilKit surface stays hosted by the detail page so strokes
                 // share its coordinate space; this child owns the overlay updates.
                 LibraryDoodleOverlay(session: session)

@@ -9,6 +9,60 @@ struct ExamSubjectScore: Identifiable, Equatable {
     var id: String { subject }
 }
 
+struct ExamReviewNote: Equatable {
+    var html: String
+    var nextAction: String
+
+    init(html: String, nextAction: String) {
+        self.html = html
+        self.nextAction = nextAction
+    }
+
+    init(in object: [String: Any]) {
+        self.init(
+            html: object["reviewNote"] as? String ?? "",
+            nextAction: object["reviewNextAction"] as? String ?? ""
+        )
+    }
+
+    var bodyPreview: String? {
+        var excerpts: [String] = []
+        var hasAttachment = false
+        for run in NativeRichTextFallbackParser.parse(html) {
+            switch run {
+            case .text(let text), .styledText(let text, _):
+                excerpts.append(text)
+            default:
+                hasAttachment = true
+            }
+        }
+        for line in excerpts.joined().split(whereSeparator: \.isNewline) {
+            let text = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if !text.isEmpty { return text }
+        }
+        return hasAttachment ? "查看富文本备注" : nil
+    }
+
+    var summary: String? {
+        let action = nextAction.split(whereSeparator: \.isNewline).first {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return action.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? bodyPreview
+    }
+}
+
+private enum ExamReviewNoteSaveError: LocalizedError {
+    case unavailable
+    case changed
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "套卷记录无法读取或已经被移除。"
+        case .changed: "这套卷的复盘备注已在别处修改。请核对后再保存。"
+        }
+    }
+}
+
 @Observable
 final class ExamDraft {
     var original: [String: Any] = [:]
@@ -82,6 +136,42 @@ final class ExamDraft {
 }
 
 enum ExamRepository {
+    @MainActor
+    static func saveReviewNote(
+        _ note: ExamReviewNote,
+        replacing original: ExamReviewNote,
+        in record: StoredRecord,
+        context: ModelContext
+    ) throws {
+        guard record.collection == "exams", record.modelContext != nil, !record.isDeleted,
+              var object = record.jsonObject else {
+            throw ExamReviewNoteSaveError.unavailable
+        }
+        let stored = ExamReviewNote(in: object)
+        guard note != stored else { return }
+        guard stored == original else { throw ExamReviewNoteSaveError.changed }
+
+        let previousPayload = record.payload
+        let previousIndex = record.indexPayload
+        let previousDate = record.updatedAt
+        let now = Date()
+        object["reviewNote"] = note.html
+        object["reviewNextAction"] = note.nextAction
+        object["updatedAt"] = ISO8601DateFormatter().string(from: now)
+        let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let index = StoredRecord.makeIndexPayload(from: object, collection: record.collection)
+        do {
+            try context.transaction {
+                record.replacePayload(payload, indexPayload: index)
+                record.updatedAt = now
+            }
+        } catch {
+            record.replacePayload(previousPayload, indexPayload: previousIndex)
+            record.updatedAt = previousDate
+            throw error
+        }
+    }
+
     static func save(
         _ draft: ExamDraft,
         derivedMetrics: ExamDerivedMetrics? = nil,
@@ -92,6 +182,18 @@ enum ExamRepository {
         let id = draft.id.isEmpty ? "exam_\(Int(now.timeIntervalSince1970 * 1_000))_\(UUID().uuidString.prefix(6))" : draft.id
         let existing = records.first { $0.collection == "exams" && $0.recordID == id }
         var object = draft.original
+        var noteHTML = draft.reviewNote
+        if let existing {
+            guard let latest = existing.jsonObject else { throw ExamReviewNoteSaveError.unavailable }
+            let originalNote = ExamReviewNote(in: draft.original)
+            let latestNote = ExamReviewNote(in: latest)
+            if noteHTML == originalNote.html {
+                noteHTML = latestNote.html
+            } else if latestNote.html != originalNote.html, latestNote.html != noteHTML {
+                throw ExamReviewNoteSaveError.changed
+            }
+            object["reviewNextAction"] = latest["reviewNextAction"]
+        }
         let uniqueErrorIDs = Array(draft.linkedErrorIDs).sorted()
         let metrics = derivedMetrics ?? draft.metrics
         object["id"] = id
@@ -109,7 +211,7 @@ enum ExamRepository {
         if let wrong = metrics.wrongCount { object["wrongCount"] = wrong } else { object.removeValue(forKey: "wrongCount") }
         if let accuracy = metrics.accuracyPercent { object["weightedAccuracy"] = accuracy } else { object.removeValue(forKey: "weightedAccuracy") }
         if let seconds = metrics.totalTimeSeconds { object["totalTimeSeconds"] = seconds } else { object.removeValue(forKey: "totalTimeSeconds") }
-        object["reviewNote"] = draft.reviewNote
+        object["reviewNote"] = noteHTML
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
 
         try context.transaction {
