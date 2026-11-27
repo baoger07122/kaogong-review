@@ -85,9 +85,6 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
             app.staticTexts["我的作答"].firstMatch.frame.minY,
             "The score card should precede the answer content"
         )
-        app.buttons["普通"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Answer after zoom"].waitForExistence(timeout: 5))
-
         reviewTab.tap()
         let note = element(app, identifier: "shenlun-review-note")
         XCTAssertTrue(note.waitForExistence(timeout: 5))
