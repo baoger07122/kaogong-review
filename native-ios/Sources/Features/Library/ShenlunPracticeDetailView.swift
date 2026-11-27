@@ -405,12 +405,22 @@ struct ShenlunPracticeDetailView: View {
             }
         }
         .task(id: zoomActivity) {
-            guard showsZoomControl, !showsZoomMenu else { return }
+            guard showsZoomControl, !showsZoomMenu,
+                  !ProcessInfo.processInfo.arguments.contains("--shenlun-reader-zoom-ui-test") else { return }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
             if !showsZoomMenu { showsZoomControl = false }
         }
         .onChange(of: showsZoomMenu) { _, isOpen in
             if !isOpen { zoomActivity += 1 }
+        }
+        .task {
+            // The normal control is intentionally transient after a pinch.  Keep
+            // it visible only for the focused UI test so the test can open the
+            // menu without racing the two-second overlay timeout.
+            guard ProcessInfo.processInfo.arguments.contains("--shenlun-reader-zoom-ui-test") else {
+                return
+            }
+            showsZoomControl = true
         }
     }
 

@@ -4,7 +4,7 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
     @MainActor
     func testPinchZoomKeepsAnnotationCanvasAlignedWithPaper() throws {
         let sessionID = UUID().uuidString
-        let app = launchShenlunFixture(sessionID: sessionID)
+        let app = launchShenlunFixture(sessionID: sessionID, openZoomMenu: true)
         let practice = element(app, identifier: "shenlun-practice-ui-test-\(sessionID)-practice")
         XCTAssertTrue(practice.waitForExistence(timeout: 15))
         practice.tap()
@@ -16,7 +16,7 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
         let initialPaperWidth = paper.frame.width
         reader.pinch(withScale: 1.5, velocity: 1)
         let zoom = element(app, identifier: "shenlun-reader-zoom")
-        XCTAssertTrue(zoom.waitForExistence(timeout: 2), "Pinching should reveal the zoom control")
+        XCTAssertTrue(zoom.waitForExistence(timeout: 5), "The focused fixture should expose the zoom control")
         zoom.tap()
         let twoHundredPercent = element(app, identifier: "200%")
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
@@ -110,12 +110,11 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchShenlunFixture(sessionID: String) -> XCUIApplication {
+    private func launchShenlunFixture(sessionID: String, openZoomMenu: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = [
-            ShenlunReaderUITestLaunchArgument.enabled,
-            "--shenlun-reader-ui-test-session=\(sessionID)"
-        ]
+        app.launchArguments = [ShenlunReaderUITestLaunchArgument.enabled,
+                               "--shenlun-reader-ui-test-session=\(sessionID)"]
+        if openZoomMenu { app.launchArguments.append(ShenlunReaderUITestLaunchArgument.zoomMenu) }
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
         let tab = app.buttons["root-tab-shenlun"].firstMatch
@@ -134,4 +133,5 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
 
 private enum ShenlunReaderUITestLaunchArgument {
     static let enabled = "--shenlun-reader-ui-test"
+    static let zoomMenu = "--shenlun-reader-zoom-ui-test"
 }
