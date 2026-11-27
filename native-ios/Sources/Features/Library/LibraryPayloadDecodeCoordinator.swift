@@ -29,6 +29,21 @@ actor LibraryPayloadDecodeCoordinator {
 
     private var completed: [LibraryPayloadDecodeKey: Completed] = [:]
     private var completedOrder: [LibraryPayloadDecodeKey] = []
+    private var preparedWrites: [(key: LibraryPayloadDecodeKey, value: Completed)] = []
+
+    func rememberPreparedWrite(
+        recordID: String,
+        updatedAt: Date,
+        payload: Data,
+        decoded: LibraryDecodedJSONPayload
+    ) {
+        let key = LibraryPayloadDecodeKey(
+            recordID: recordID, updatedAt: updatedAt, payloadByteCount: payload.count, source: "payload"
+        )
+        preparedWrites.removeAll { $0.key == key }
+        preparedWrites.append((key, Completed(payload: payload, decoded: decoded)))
+        if preparedWrites.count > 2 { preparedWrites.removeFirst() }
+    }
 
     func decode(
         key: LibraryPayloadDecodeKey,
@@ -36,6 +51,9 @@ actor LibraryPayloadDecodeCoordinator {
         priority: TaskPriority
     ) async -> LibraryDecodedJSONPayload? {
         guard !Task.isCancelled else { return nil }
+        if let prepared = preparedWrites.first(where: { $0.key == key && $0.value.payload == payload }) {
+            return prepared.value.decoded
+        }
         if let cached = completed[key], cached.payload == payload {
             return cached.decoded
         }

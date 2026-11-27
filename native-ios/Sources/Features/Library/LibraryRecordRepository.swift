@@ -492,6 +492,7 @@ fileprivate struct LibraryRecordPayloadPreparationInput: @unchecked Sendable {
 private struct LibraryRecordPreparedPayload: Sendable {
     let payload: Data
     let indexPayload: Data
+    let decoded: LibraryDecodedJSONPayload
 }
 
 private enum LibraryRecordPayloadPreparer {
@@ -500,11 +501,13 @@ private enum LibraryRecordPayloadPreparer {
             let preparationStart = ProcessInfo.processInfo.systemUptime
             let object = LibraryRecordRepository.makePayloadObject(from: input)
             let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-            guard let indexPayload = StoredRecord.makeIndexPayload(from: payload, collection: input.kind.collection) else {
+            guard let indexPayload = StoredRecord.makeIndexPayload(from: object, collection: input.kind.collection) else {
                 throw LibraryRecordSaveError.invalidPreparedIndex
             }
             LibraryPerformanceLog.mark("record.save.data-and-index.prepare", since: preparationStart)
-            return LibraryRecordPreparedPayload(payload: payload, indexPayload: indexPayload)
+            return LibraryRecordPreparedPayload(
+                payload: payload, indexPayload: indexPayload, decoded: LibraryDecodedJSONPayload(object: object)
+            )
         }.value
     }
 }
@@ -836,6 +839,12 @@ enum LibraryRecordRepository {
             knowledgePointNames: knowledgePointNames
         )
         let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
+        if kind == .errors {
+            await LibraryPayloadDecodeCoordinator.shared.rememberPreparedWrite(
+                recordID: "\(kind.collection):\(id)", updatedAt: now,
+                payload: preparedPayload.payload, decoded: preparedPayload.decoded
+            )
+        }
 
         let transactionStart = ProcessInfo.processInfo.systemUptime
         var savedWordRecord: StoredRecord?

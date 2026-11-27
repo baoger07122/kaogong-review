@@ -124,6 +124,10 @@ final class StoredRecord {
 
     static func makeIndexPayload(from payload: Data, collection: String) -> Data? {
         guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { return nil }
+        return makeIndexPayload(from: object, collection: collection)
+    }
+
+    static func makeIndexPayload(from object: [String: Any], collection: String) -> Data? {
         let keys: Set<String>
         switch collection {
         case "errors":

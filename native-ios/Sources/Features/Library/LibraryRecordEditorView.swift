@@ -2099,7 +2099,7 @@ struct LibraryRecordEditorView: View {
         let captureStart = ProcessInfo.processInfo.systemUptime
         commitPendingQuestionImageWidths()
         let saveDraft = draft
-        let saveDraftSnapshot = draftSnapshot
+        let saveDraftSnapshot = recordID == nil ? LibraryDraftSnapshot(saveDraft) : nil
         LibraryPerformanceLog.mark("record.save.capture", since: captureStart)
 
         if let recordID, saveDraft.hasSameEditableValues(as: editBaseline) {
@@ -2122,7 +2122,7 @@ struct LibraryRecordEditorView: View {
         Task { @MainActor in
             await Task.yield()
             do {
-                if recordID == nil {
+                if let saveDraftSnapshot {
                     await LibraryDraftStore.flush(saveDraftSnapshot, kind: kind, scope: scope)
                 }
                 let savedID = try await LibraryRecordRepository.save(

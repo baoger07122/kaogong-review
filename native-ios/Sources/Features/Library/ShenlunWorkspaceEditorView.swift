@@ -37,6 +37,7 @@ struct ShenlunWorkspaceEditorView: View {
     @State private var errorMessage: String?
     @State private var didLoad = false
     @State private var deletingMaterialIDs = Set<String>()
+    @State private var expandedReferenceQuestionIDs = Set<String>()
 
     init(
         practiceID: String?,
@@ -91,7 +92,7 @@ struct ShenlunWorkspaceEditorView: View {
                         HStack(alignment: .top, spacing: 16) {
                             VStack(spacing: 14) {
                                 questionContentSection
-                                if !isEditingQuestion { referenceAnswerSection }
+                                referenceAnswerSection
                             }
                             VStack(spacing: 14) {
                                 questionInformationSection
@@ -103,7 +104,7 @@ struct ShenlunWorkspaceEditorView: View {
                             questionInformationSection
                             questionContentSection
                             materialsSection
-                            if !isEditingQuestion { referenceAnswerSection }
+                            referenceAnswerSection
                         }
                     }
                 }
@@ -470,22 +471,63 @@ struct ShenlunWorkspaceEditorView: View {
     }
 
     private var referenceAnswerSection: some View {
-        editorCard("预录参考答案", icon: "doc.plaintext") {
-            Text("参考答案会在该题完成独立作答后才显示。")
-                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-            ShenlunAdaptiveTextEditor(
-                text: questionBinding.referenceAnswer,
-                minimumHeight: 180,
-                growsWithContent: true,
-                fontSize: 15,
-                accessibilityIdentifier: "shenlun-reference-answer"
-            )
+        let id = question.id
+        let hasReference = !question.referenceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let expanded = Binding(
+            get: { expandedReferenceQuestionIDs.contains(id) },
+            set: {
+                if $0 { expandedReferenceQuestionIDs.insert(id) }
+                else { expandedReferenceQuestionIDs.remove(id) }
+            }
+        )
+        return editorCard {
+            if isEditingQuestion {
+                referenceAnswerLabel("参考答案", status: hasReference ? "已录入" : "未录入")
+                    .accessibilityIdentifier("shenlun-reference-answer-status")
+            } else {
+                DisclosureGroup(isExpanded: expanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ShenlunAdaptiveTextEditor(
+                            text: questionBinding.referenceAnswer,
+                            minimumHeight: 180,
+                            growsWithContent: true,
+                            fontSize: 15,
+                            accessibilityIdentifier: "shenlun-reference-answer"
+                        )
+                        Text("完成独立作答后在「对照答案」显示。")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    referenceAnswerLabel("预录参考答案", status: hasReference ? "已录入" : "选填")
+                }
+                .accessibilityIdentifier("shenlun-reference-answer-disclosure")
+            }
         }
     }
 
+    private func referenceAnswerLabel(_ title: String, status: String) -> some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: "doc.plaintext")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            Text(status)
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+        }
+        .frame(minHeight: 22)
+    }
+
     private func editorCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        editorCard {
             Label(title, systemImage: icon).font(.system(size: 13, weight: .medium))
+            content()
+        }
+    }
+
+    private func editorCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             content()
         }
         .padding(14)

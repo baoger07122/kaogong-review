@@ -23,6 +23,13 @@ private struct ShenlunQuestionReadingLocation: Codable {
     var pageIndex: Int
 }
 
+private enum ShenlunLayerNameTarget: Equatable {
+    case new
+    case existing(String)
+
+    var title: String { self == .new ? "新建图层" : "重命名图层" }
+}
+
 struct ShenlunPracticeDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -72,8 +79,10 @@ struct ShenlunPracticeDetailView: View {
     @State private var readingLocations: [String: ShenlunQuestionReadingLocation] = [:]
     @State private var errorMessage: String?
     @State private var isShowingLayerMenu = false
-    @State private var isShowingNewLayer = false
+    @State private var layerNameTarget: ShenlunLayerNameTarget?
     @State private var layerName = ""
+    @State private var layerNameError: String?
+    @State private var isSavingLayerName = false
     @State private var isShowingDoubtEditor = false
     @State private var doubtText = ""
     @State private var answerPaperIndex = 0
@@ -260,12 +269,12 @@ struct ShenlunPracticeDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .alert("新建图层", isPresented: $isShowingNewLayer) {
-            TextField("图层名称", text: $layerName)
-            Button("保存") { createLayer() }
-            Button("取消", role: .cancel) { layerName = "" }
-        } message: {
-            Text("图层名称不能为空。")
+        .onChange(of: isShowingLayerMenu) { _, shown in
+            if !shown { cancelLayerNameEntry() }
+        }
+        .onChange(of: selectedMaterialID) { _, _ in
+            isShowingLayerMenu = false
+            cancelLayerNameEntry()
         }
         .task { loadInitialData() }
         .task(id: drawingLoadKey) { loadPageAssetsAndDrawings() }
@@ -1321,71 +1330,116 @@ struct ShenlunPracticeDetailView: View {
 
     private var layerPopover: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("批注图层").font(.system(size: 14, weight: .semibold))
-            if let currentMaterial {
-                ForEach(currentMaterial.layers) { layer in
-                    HStack(spacing: 8) {
-                        Image(uiImage: drawingPreviews[layer.id] ?? UIImage())
-                            .resizable().scaledToFit().frame(width: 34, height: 31)
-                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
-                        Button(layer.name) { activateLayer(layer.id) }
-                            .font(.system(size: 13, weight: layer.id == currentMaterial.activeLayerID ? .semibold : .regular))
-                            .lineLimit(1)
-                            .foregroundStyle(layer.id == currentMaterial.activeLayerID ? AppTheme.accent : .primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button { toggleLayer(layer.id) } label: {
-                            Image(systemName: layer.isVisible ? "eye" : "eye.slash")
-                                .frame(width: 38, height: 44)
-                        }
-                        .accessibilityLabel("\(layer.name)，\(layer.isVisible ? "显示" : "隐藏")")
-                        Menu {
-                            Button("重命名") {
-                                layerName = layer.name
-                                layerToRenameID = layer.id
-                                isShowingRenameLayer = true
-                            }
-                            .labelStyle(.titleAndIcon)
-                        } label: {
-                            Image(systemName: "ellipsis").frame(width: 34, height: 44)
-                        }
-                        .accessibilityLabel("管理图层 \(layer.name)")
-                    }
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("批注图层").font(.system(size: 14, weight: .semibold))
+                    Text(activeLayer.map { "当前图层 · \($0.name)" } ?? "暂无活动图层")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("关闭") { isShowingLayerMenu = false }
                     .frame(minHeight: 44)
-                }
-                Button("＋ 新建图层") { layerName = ""; isShowingNewLayer = true }
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                Divider()
-                Button {
-                    var updated = currentMaterial
-                    updated.showAllLayers.toggle()
-                    let shouldHide = !updated.showAllLayers
-                    commitDrawingBeforeTransition {
-                        self.saveMaterial(updated)
-                        if shouldHide {
-                            self.isDoodling = false
-                            self.pencilController.showSettings = false
+                    .disabled(isSavingLayerName)
+            }
+            if let currentMaterial {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(currentMaterial.layers) { layer in
+                            layerMenuRow(layer, isActive: layer.id == currentMaterial.activeLayerID)
                         }
                     }
-                } label: {
-                    Label(currentMaterial.showAllLayers ? "隐藏全部图层预览" : "显示全部图层", systemImage: currentMaterial.showAllLayers ? "eye.slash" : "eye")
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 }
+                .frame(height: CGFloat(max(1, min(currentMaterial.layers.count, 4))) * 44)
+                .disabled(isSavingLayerName)
+                if let target = layerNameTarget { layerNameForm(target) }
+                Divider()
+                HStack(spacing: 8) {
+                    Button {
+                        beginLayerNameEntry(.new)
+                    } label: {
+                        Label("新建图层", systemImage: "plus")
+                            .frame(minHeight: 44)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        var updated = currentMaterial
+                        updated.showAllLayers.toggle()
+                        commitDrawingBeforeTransition {
+                            guard self.saveMaterial(updated) else { return }
+                            if !updated.showAllLayers {
+                                self.isDoodling = false
+                                self.pencilController.showSettings = false
+                            }
+                        }
+                    } label: {
+                        Label(currentMaterial.showAllLayers ? "隐藏笔迹" : "显示笔迹",
+                              systemImage: currentMaterial.showAllLayers ? "eye.slash" : "eye")
+                            .frame(minHeight: 44)
+                    }
+                }
+                .font(.system(size: 13, weight: .medium))
+                .disabled(isSavingLayerName)
             }
         }
         .padding(12)
-        .frame(width: 258)
-        .frame(maxHeight: 390)
+        .frame(width: 280)
         .background(Color.white)
-        .alert("重命名图层", isPresented: $isShowingRenameLayer) {
-            TextField("图层名称", text: $layerName)
-            Button("保存") { renameLayer() }
-            Button("取消", role: .cancel) { layerToRenameID = nil }
+    }
+
+    private func layerMenuRow(_ layer: ShenlunWorkspaceLayer, isActive: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(uiImage: drawingPreviews[layer.id] ?? UIImage())
+                .resizable().scaledToFit().frame(width: 34, height: 31)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+            Button { activateLayer(layer.id) } label: {
+                Text(layer.name)
+                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .foregroundStyle(isActive ? AppTheme.accent : .primary)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityAddTraits(isActive ? .isSelected : [])
+            Button { toggleLayer(layer.id) } label: {
+                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
+                    .frame(width: 38, height: 44)
+            }
+            .accessibilityLabel("\(layer.isVisible ? "隐藏" : "显示")图层 \(layer.name)")
+            Menu {
+                Button("重命名") { beginLayerNameEntry(.existing(layer.id), name: layer.name) }
+            } label: {
+                Image(systemName: "ellipsis").frame(width: 34, height: 44)
+            }
+            .accessibilityLabel("管理图层 \(layer.name)")
         }
     }
 
-    @State private var layerToRenameID: String?
-    @State private var isShowingRenameLayer = false
+    private func layerNameForm(_ target: ShenlunLayerNameTarget) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(target.title).font(.system(size: 13, weight: .medium))
+            TextField("图层名称", text: $layerName)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.done)
+                .onSubmit { submitLayerName() }
+                .accessibilityIdentifier("shenlun-layer-name")
+            if let layerNameError {
+                Text(layerNameError)
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.warning)
+            }
+            HStack {
+                Spacer()
+                Button("取消") { cancelLayerNameEntry() }
+                    .frame(minHeight: 44)
+                Button("保存") { submitLayerName() }
+                    .fontWeight(.semibold)
+                    .frame(minHeight: 44)
+            }
+            .font(.system(size: 13))
+        }
+        .disabled(isSavingLayerName)
+    }
 
     private var visibleDrawingLayerIDs: [String] {
         guard let currentMaterial, currentMaterial.showAllLayers else { return [] }
@@ -1870,10 +1924,13 @@ struct ShenlunPracticeDetailView: View {
         }
     }
 
-    private func commitDrawingBeforeTransition(_ transition: @escaping () -> Void) {
+    private func commitDrawingBeforeTransition(onFailure: (() -> Void)? = nil, _ transition: @escaping () -> Void) {
         guard isDoodling else { transition(); return }
         pencilController.commit {
-            guard self.persistDrawingNow() else { return }
+            guard self.persistDrawingNow() else {
+                onFailure?()
+                return
+            }
             self.isDoodling = false
             transition()
         }
@@ -1917,7 +1974,7 @@ struct ShenlunPracticeDetailView: View {
             var material = currentMaterial
             material.layers[layerIndex].isVisible = true
             material.activeLayerID = id
-            self.saveMaterial(material)
+            guard self.saveMaterial(material) else { return }
             self.isShowingLayerMenu = false
         }
         commitDrawingBeforeTransition(update)
@@ -1931,7 +1988,7 @@ struct ShenlunPracticeDetailView: View {
             material.activeLayerID = material.layers.first(where: \.isVisible)?.id
         }
         let update = {
-            self.saveMaterial(material)
+            guard self.saveMaterial(material) else { return }
             if material.activeLayerID == nil {
                 self.isDoodling = false
                 self.pencilController.showSettings = false
@@ -1940,46 +1997,72 @@ struct ShenlunPracticeDetailView: View {
         commitDrawingBeforeTransition(update)
     }
 
-    private func createLayer() {
-        guard let currentMaterial else { return }
-        let name = layerName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { errorMessage = "图层名称不能为空。"; return }
-        guard !currentMaterial.layers.contains(where: { $0.name == name }) else { errorMessage = "此材料中已有同名图层。"; return }
-        var material = currentMaterial
-        let layer = ShenlunWorkspaceLayer(name: name)
-        material.layers.insert(layer, at: 0)
-        material.activeLayerID = layer.id
-        let update = {
-            self.saveMaterial(material)
-            self.layerName = ""
-            self.isShowingNewLayer = false
-            self.isShowingLayerMenu = false
-        }
-        commitDrawingBeforeTransition(update)
+    private func beginLayerNameEntry(_ target: ShenlunLayerNameTarget, name: String = "") {
+        layerNameTarget = target
+        layerName = name
+        layerNameError = nil
     }
 
-    private func renameLayer() {
-        guard let currentMaterial, let layerToRenameID,
-              let index = currentMaterial.layers.firstIndex(where: { $0.id == layerToRenameID }) else { return }
+    private func cancelLayerNameEntry() {
+        layerNameTarget = nil
+        layerName = ""
+        layerNameError = nil
+    }
+
+    private func submitLayerName() {
+        guard !isSavingLayerName, let target = layerNameTarget, var material = currentMaterial else { return }
         let name = layerName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { errorMessage = "图层名称不能为空。"; return }
-        guard !currentMaterial.layers.enumerated().contains(where: { $0.offset != index && $0.element.name == name }) else {
-            errorMessage = "此材料中已有同名图层。"
+        guard !name.isEmpty else {
+            layerNameError = "图层名称不能为空。"
             return
         }
-        var material = currentMaterial
-        material.layers[index].name = name
-        saveMaterial(material)
-        self.layerToRenameID = nil
-        layerName = ""
+        guard !material.layers.contains(where: { $0.name == name && target != .existing($0.id) }) else {
+            layerNameError = "此材料中已有同名图层。"
+            return
+        }
+        switch target {
+        case .new:
+            let newLayer = ShenlunWorkspaceLayer(name: name)
+            material.layers.insert(newLayer, at: 0)
+            material.activeLayerID = newLayer.id
+            material.showAllLayers = true
+        case let .existing(id):
+            guard let index = material.layers.firstIndex(where: { $0.id == id }) else { return }
+            material.layers[index].name = name
+        }
+
+        let updated = material
+        let finish = {
+            defer { self.isSavingLayerName = false }
+            guard self.currentMaterial?.id == updated.id else { return }
+            if self.saveMaterial(updated) {
+                self.cancelLayerNameEntry()
+            } else {
+                self.layerNameError = self.errorMessage
+                self.errorMessage = nil
+            }
+        }
+        isSavingLayerName = true
+        if target == .new {
+            commitDrawingBeforeTransition(onFailure: {
+                self.isSavingLayerName = false
+                self.layerNameError = self.errorMessage
+                self.errorMessage = nil
+            }, finish)
+        } else {
+            finish()
+        }
     }
 
-    private func saveMaterial(_ updated: ShenlunWorkspaceMaterial) {
+    @discardableResult
+    private func saveMaterial(_ updated: ShenlunWorkspaceMaterial) -> Bool {
         do {
             try ShenlunWorkspaceRepository.save(updated, in: modelContext)
             if let index = materials.firstIndex(where: { $0.id == updated.id }) { materials[index] = updated }
+            return true
         } catch {
             errorMessage = "材料或图层保存失败：\(error.localizedDescription)"
+            return false
         }
     }
 

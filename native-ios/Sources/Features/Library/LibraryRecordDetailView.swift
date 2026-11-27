@@ -537,9 +537,9 @@ struct LibraryRecordDetailView: View {
                     detailScrollView(availableWidth: availableWidth)
                 }
                 detailModal
+                    .disabled(displaysPreviousQuestionSnapshot)
+                    .allowsHitTesting(!displaysPreviousQuestionSnapshot)
             }
-            .disabled(displaysPreviousQuestionSnapshot)
-            .allowsHitTesting(!displaysPreviousQuestionSnapshot)
             .onAppear {
                 if !doodleSession.isPresented || !doodleSession.isSplitDrawingSession {
                     splitDoodleLayoutDirection = layoutDirection
@@ -733,6 +733,8 @@ struct LibraryRecordDetailView: View {
                     reviewContent(dateBlock)
                 }
             }
+            .disabled(displaysPreviousQuestionSnapshot)
+            .allowsHitTesting(!displaysPreviousQuestionSnapshot)
             .padding(.horizontal, 16)
             .padding(.top, 5)
             .padding(.bottom, 14)
