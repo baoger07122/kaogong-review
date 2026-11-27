@@ -18,7 +18,9 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
         let zoom = element(app, identifier: "shenlun-reader-zoom")
         XCTAssertTrue(zoom.waitForExistence(timeout: 5), "The focused fixture should expose the zoom control")
         zoom.tap()
-        let twoHundredPercent = element(app, identifier: "200%")
+        let twoHundredPercent = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "200%"))
+            .firstMatch
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
         twoHundredPercent.tap()
         let paperReachedSelectedZoom = XCTNSPredicateExpectation(
