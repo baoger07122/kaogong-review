@@ -15,11 +15,10 @@ final class ShenlunReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(paper.waitForExistence(timeout: 10))
         let initialPaperWidth = paper.frame.width
         reader.pinch(withScale: 1.5, velocity: 1)
-        // The zoom control is a two-second overlay anchored at the reader's top leading corner.
-        reader.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.03)).tap()
-        let twoHundredPercent = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "200%"))
-            .firstMatch
+        let zoom = element(app, identifier: "shenlun-reader-zoom")
+        XCTAssertTrue(zoom.waitForExistence(timeout: 2), "Pinching should reveal the zoom control")
+        zoom.tap()
+        let twoHundredPercent = element(app, identifier: "200%")
         XCTAssertTrue(twoHundredPercent.waitForExistence(timeout: 5))
         twoHundredPercent.tap()
         let paperReachedSelectedZoom = XCTNSPredicateExpectation(
