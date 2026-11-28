@@ -12,13 +12,35 @@ private enum RichTextMetrics {
     static let heading1Size: CGFloat = 21
 }
 
+private enum NoteParagraphMetrics {
+    static let lineHeight: CGFloat = 24
+    static let listTextIndent: CGFloat = 30
+    static let listSpacing: CGFloat = 6
+    static let bulletDiameter: CGFloat = 6
+    static let bulletCenterOffset: CGFloat = 9
+    static let quoteIndent: CGFloat = 25
+    static let quoteRuleWidth: CGFloat = 3
+    static let calloutInset: CGFloat = 22
+    static let calloutVerticalInset: CGFloat = 20
+    static let calloutRadius: CGFloat = 10
+    static let dividerHeight: CGFloat = 28
+    static let hairline: CGFloat = 1
+
+    static let markerInk = adaptableGray(light: 0.10, dark: 0.92)
+    static let placeholderInk = adaptableGray(light: 0.70, dark: 0.53)
+    static let outlineInk = adaptableGray(light: 0.88, dark: 0.33)
+    static let dividerInk = adaptableGray(light: 0.87, dark: 0.32)
+
+    private static func adaptableGray(light: CGFloat, dark: CGFloat) -> UIColor {
+        UIColor { traits in UIColor(white: traits.userInterfaceStyle == .dark ? dark : light, alpha: 1) }
+    }
+}
+
 private enum NativeRichTextNoteFormatting {
     static let quoteKey = NSAttributedString.Key("com.kaogong.note.quote")
     static let listKey = NSAttributedString.Key("com.kaogong.note.list-item")
     static let blockKey = NSAttributedString.Key("com.kaogong.note.block")
     static let placeholder = "\u{200B}"
-    static let quoteIndent: CGFloat = 22
-    static let calloutInset: CGFloat = 16
     static let markerInset: CGFloat = 3
 
     static func isNeutralBackground(_ value: Any?) -> Bool {
@@ -87,14 +109,18 @@ private enum NativeRichTextNoteFormatting {
             if block.includesQuote {
                 text.addAttribute(quoteKey, value: true, range: range)
             }
-            style.headIndent = (block.includesQuote ? quoteIndent : 0) + (block.includesCallout ? calloutInset : 0)
+            let boxInset = block.includesCallout ? NoteParagraphMetrics.calloutInset : 0
+            style.headIndent = (block.includesQuote ? NoteParagraphMetrics.quoteIndent : 0) + boxInset
             style.firstLineHeadIndent = style.headIndent
-            style.tailIndent = block.includesCallout ? -calloutInset : 0
-            style.paragraphSpacingBefore = block.includesCallout ? 8 : 2
-            style.paragraphSpacing = block.includesCallout ? 8 : 5
+            style.tailIndent = -boxInset
+            style.minimumLineHeight = NoteParagraphMetrics.lineHeight
+            style.paragraphSpacingBefore = block.includesCallout ? NoteParagraphMetrics.calloutVerticalInset + 12 : 2
+            style.paragraphSpacing = block.includesCallout ? NoteParagraphMetrics.calloutVerticalInset + 12 : 4
             if block == .divider {
-                style.minimumLineHeight = 16
-                style.maximumLineHeight = 16
+                style.paragraphSpacingBefore = 0
+                style.paragraphSpacing = 0
+                style.minimumLineHeight = NoteParagraphMetrics.dividerHeight
+                style.maximumLineHeight = NoteParagraphMetrics.dividerHeight
             }
         }
         text.addAttribute(.paragraphStyle, value: style, range: range)
@@ -158,8 +184,7 @@ private struct NoteListMarker {
         if offset > 0 { paragraph.deleteCharacters(in: NSRange(location: 0, length: offset)) }
         let previousAttributes = paragraph.length > 0 ? paragraph.attributes(at: 0, effectiveRange: nil) : [:]
         var markerAttributes = NativeRichTextNoteFormatting.plainAttributes(from: previousAttributes)
-        let size = kind == .bullet ? 14.0 : RichTextMetrics.bodySize
-        let markerFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+        let markerFont = UIFont.monospacedDigitSystemFont(ofSize: RichTextMetrics.bodySize, weight: .regular)
         markerAttributes[.font] = markerFont
         markerAttributes[.foregroundColor] = UIColor.label
         markerAttributes.removeValue(forKey: .link)
@@ -171,12 +196,15 @@ private struct NoteListMarker {
         let style = (oldStyle?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
         let markerWidth = (String(kind.prefix.dropLast()) as NSString).size(withAttributes: [.font: markerFont]).width
         style.firstLineHeadIndent = base + NativeRichTextNoteFormatting.markerInset
-        style.headIndent = base + max(22, NativeRichTextNoteFormatting.markerInset + ceil(markerWidth) + 6)
+        style.headIndent = base + max(
+            NoteParagraphMetrics.listTextIndent, NativeRichTextNoteFormatting.markerInset + ceil(markerWidth) + 6
+        )
         style.tailIndent = 0
         style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent, options: [:])]
         style.textLists = []
+        style.minimumLineHeight = NoteParagraphMetrics.lineHeight
         style.paragraphSpacingBefore = 0
-        style.paragraphSpacing = 4
+        style.paragraphSpacing = NoteParagraphMetrics.listSpacing
         let range = NSRange(location: 0, length: paragraph.length)
         paragraph.removeAttribute(NativeRichTextNoteFormatting.blockKey, range: range)
         paragraph.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: range)
@@ -397,9 +425,10 @@ private struct RichTextTableEditorRequest: Identifiable {
 }
 
 private final class NoteParagraphLayoutFragment: NSTextLayoutFragment {
-    var showsPlaceholder = false
-
-    private var paragraph: NSAttributedString? { (textElement as? NSTextParagraph)?.attributedString }
+    private var block: NativeRichTextNoteBlockKind?
+    private var drawsBullet = false
+    private var caption: String?
+    private var style: NSParagraphStyle?
 
     private var drawingArea: CGRect {
         let lines = textLineFragments.reduce(CGRect.null) { $0.union($1.typographicBounds) }
@@ -407,62 +436,100 @@ private final class NoteParagraphLayoutFragment: NSTextLayoutFragment {
         let container = textLayoutManager?.textContainer
         let width = (container?.size.width ?? 0) - layoutFragmentFrame.minX - (container?.lineFragmentPadding ?? 0)
         let usableWidth = width.isFinite && width < 100_000 ? max(width, lines.width) : lines.width
-        return CGRect(x: 0, y: lines.minY, width: max(1, usableWidth), height: max(16, lines.height))
+        return CGRect(x: 0, y: lines.minY, width: max(1, usableWidth), height: lines.height)
+    }
+
+    private var bulletFrame: CGRect? {
+        guard drawsBullet, let first = textLineFragments.first else { return nil }
+        let line = first.typographicBounds
+        let start = max(line.minX, style?.firstLineHeadIndent ?? 0)
+        let diameter = NoteParagraphMetrics.bulletDiameter
+        return CGRect(x: start + NoteParagraphMetrics.bulletCenterOffset - diameter / 2,
+                      y: line.midY - diameter / 2, width: diameter, height: diameter)
+    }
+
+    private var captionAttributes: [NSAttributedString.Key: Any] {
+        [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
+         .foregroundColor: NoteParagraphMetrics.placeholderInk]
+    }
+
+    private var captionFrame: CGRect? {
+        guard let caption, let first = textLineFragments.first else { return nil }
+        let size = (caption as NSString).size(withAttributes: captionAttributes)
+        return CGRect(x: style?.headIndent ?? 0, y: first.typographicBounds.midY - size.height / 2,
+                      width: size.width, height: size.height)
     }
 
     override var renderingSurfaceBounds: CGRect {
-        let area = drawingArea
-        return area.isNull ? super.renderingSurfaceBounds : super.renderingSurfaceBounds.union(area.insetBy(dx: -1, dy: -8))
+        var bounds = super.renderingSurfaceBounds
+        if block != nil {
+            let padding = block?.includesCallout == true ? NoteParagraphMetrics.calloutVerticalInset + 1 : 0
+            bounds = bounds.union(drawingArea.insetBy(dx: 0, dy: -padding))
+        }
+        if let bulletFrame { bounds = bounds.union(bulletFrame.insetBy(dx: -1, dy: -1)) }
+        if let captionFrame { bounds = bounds.union(captionFrame) }
+        return bounds
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        let area = drawingArea
-        guard !area.isNull, let paragraph, paragraph.length > 0 else {
-            super.draw(at: point, in: context)
-            return
+        if let block {
+            let frame = drawingArea.offsetBy(dx: point.x, dy: point.y)
+            if !frame.isNull { drawBlock(block, in: frame, context: context) }
         }
-        let attributes = paragraph.attributes(at: 0, effectiveRange: nil)
-        let block = NativeRichTextNoteFormatting.block(in: attributes)
-        let style = attributes[.paragraphStyle] as? NSParagraphStyle
-        let frame = area.offsetBy(dx: point.x, dy: point.y)
+
+        if let bulletFrame, let first = textLineFragments.first {
+            // Keep the textual bullet for selection and export. Replace only its painted glyph.
+            let line = first.typographicBounds.offsetBy(dx: point.x, dy: point.y)
+            let glyphStrip = CGRect(x: point.x, y: line.minY,
+                                    width: max(1, (style?.headIndent ?? NoteParagraphMetrics.listTextIndent) - 1),
+                                    height: line.height)
+            context.saveGState()
+            let surface = super.renderingSurfaceBounds.offsetBy(dx: point.x, dy: point.y)
+            let coveredGlyph = glyphStrip.intersection(surface)
+            if !coveredGlyph.isNull {
+                context.addRect(surface)
+                context.addRect(coveredGlyph)
+                context.clip(using: .evenOdd)
+            }
+            super.draw(at: point, in: context)
+            context.restoreGState()
+
+            context.saveGState()
+            context.setFillColor(NoteParagraphMetrics.markerInk.cgColor)
+            context.fillEllipse(in: bulletFrame.offsetBy(dx: point.x, dy: point.y))
+            context.restoreGState()
+        } else {
+            super.draw(at: point, in: context)
+        }
+
+        guard let caption, let captionFrame else { return }
+        UIGraphicsPushContext(context)
+        (caption as NSString).draw(at: captionFrame.offsetBy(dx: point.x, dy: point.y).origin, withAttributes: captionAttributes)
+        UIGraphicsPopContext()
+    }
+
+    private func drawBlock(_ block: NativeRichTextNoteBlockKind, in frame: CGRect, context: CGContext) {
+        let lineWidth = NoteParagraphMetrics.hairline
         context.saveGState()
-        if block?.includesCallout == true {
-            context.setStrokeColor(UIColor.separator.cgColor)
-            context.setLineWidth(0.8)
-            let outline = CGRect(x: frame.minX + 0.5, y: frame.minY - 6,
-                                 width: max(1, frame.width - 1), height: frame.height + 12)
-            context.addPath(CGPath(roundedRect: outline, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        if block.includesCallout {
+            context.setStrokeColor(NoteParagraphMetrics.outlineInk.cgColor)
+            context.setLineWidth(lineWidth)
+            let outline = frame.insetBy(dx: lineWidth / 2, dy: -NoteParagraphMetrics.calloutVerticalInset)
+            let radius = NoteParagraphMetrics.calloutRadius
+            context.addPath(CGPath(roundedRect: outline, cornerWidth: radius, cornerHeight: radius, transform: nil))
             context.strokePath()
         }
-        if block?.includesQuote == true {
-            let inset = block?.includesCallout == true ? NativeRichTextNoteFormatting.calloutInset : 0
-            let ruleX = max(inset, (textLineFragments.first?.glyphOrigin.x ?? 0) - NativeRichTextNoteFormatting.quoteIndent)
-            let quote = CGRect(x: frame.minX + ruleX, y: frame.minY + 1,
-                               width: 3, height: max(4, frame.height - 2))
-            context.setFillColor(UIColor.label.cgColor)
-            context.fill(quote)
+        if block.includesQuote {
+            let inset = block.includesCallout ? NoteParagraphMetrics.calloutInset : 0
+            context.setFillColor(NoteParagraphMetrics.markerInk.cgColor)
+            context.fill(CGRect(x: frame.minX + inset, y: frame.minY,
+                                width: NoteParagraphMetrics.quoteRuleWidth, height: frame.height))
         }
         if block == .divider {
-            context.setFillColor(UIColor.separator.cgColor)
-            context.fill(CGRect(x: frame.minX, y: frame.midY, width: frame.width, height: 0.75))
+            context.setFillColor(NoteParagraphMetrics.dividerInk.cgColor)
+            context.fill(CGRect(x: frame.minX, y: frame.midY - lineWidth / 2, width: frame.width, height: lineWidth))
         }
         context.restoreGState()
-        super.draw(at: point, in: context)
-
-        guard showsPlaceholder, block != .divider else { return }
-        let source = paragraph.string
-        let list = attributes[NativeRichTextNoteFormatting.listKey] != nil ? NoteListMarker.read(source) : nil
-        let text = list.map { String(source.dropFirst($0.prefix.count)) } ?? source
-        guard text.replacingOccurrences(of: NativeRichTextNoteFormatting.placeholder, with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let caption = list != nil ? "项目" : (block?.includesQuote == true ? "空白引用" : "")
-        guard !caption.isEmpty else { return }
-        UIGraphicsPushContext(context)
-        (caption as NSString).draw(
-            at: CGPoint(x: frame.minX + (style?.headIndent ?? 0), y: frame.minY),
-            withAttributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize), .foregroundColor: UIColor.placeholderText]
-        )
-        UIGraphicsPopContext()
     }
 
     static func make(for element: NSTextElement, noteFormatting: Bool, editing: Bool) -> NSTextLayoutFragment {
@@ -470,13 +537,24 @@ private final class NoteParagraphLayoutFragment: NSTextLayoutFragment {
             return NSTextLayoutFragment(textElement: element, range: nil)
         }
         let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
-        let hasEmptyListItem = editing && attributes[NativeRichTextNoteFormatting.listKey] != nil
-            && paragraph.attributedString.string.contains(NativeRichTextNoteFormatting.placeholder)
-        guard NativeRichTextNoteFormatting.block(in: attributes) != nil || hasEmptyListItem else {
+        let block = NativeRichTextNoteFormatting.block(in: attributes)
+        let list = NoteListMarker.read(in: paragraph.attributedString)
+        let drawsBullet = list?.kind == .bullet
+        var caption: String?
+        if editing, list != nil || block?.includesQuote == true {
+            let body = paragraph.attributedString.string.dropFirst(list?.prefix.count ?? 0)
+            if body.allSatisfy({ $0.isWhitespace || $0 == "\u{200B}" }) {
+                caption = list == nil ? "空白引用" : "项目"
+            }
+        }
+        guard block != nil || drawsBullet || caption != nil else {
             return NSTextLayoutFragment(textElement: element, range: nil)
         }
         let fragment = NoteParagraphLayoutFragment(textElement: element, range: nil)
-        fragment.showsPlaceholder = editing
+        fragment.block = block
+        fragment.drawsBullet = drawsBullet
+        fragment.caption = caption
+        fragment.style = attributes[.paragraphStyle] as? NSParagraphStyle
         return fragment
     }
 }
@@ -4957,7 +5035,7 @@ private struct RichTextTextView: UIViewRepresentable {
             paragraphRange = (result.string as NSString).paragraphRange(for: NSRange(location: paragraphRange.location, length: 0))
             guard result.length > 0, paragraphRange.length > 0 else { continue }
             let style = (result.attribute(.paragraphStyle, at: min(paragraphRange.location, max(0, result.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            style.headIndent = NativeRichTextNoteFormatting.quoteIndent
+            style.headIndent = NoteParagraphMetrics.quoteIndent
             style.firstLineHeadIndent = style.headIndent
             result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
             result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
@@ -5071,8 +5149,8 @@ private struct RichTextTextView: UIViewRepresentable {
                 style.tailIndent = CGFloat(indent.tailIndent)
             }
             if quoted {
-                style.headIndent = max(style.headIndent, NativeRichTextNoteFormatting.quoteIndent)
-                style.firstLineHeadIndent = max(style.firstLineHeadIndent, NativeRichTextNoteFormatting.quoteIndent)
+                style.headIndent = max(style.headIndent, NoteParagraphMetrics.quoteIndent)
+                style.firstLineHeadIndent = max(style.firstLineHeadIndent, NoteParagraphMetrics.quoteIndent)
                 style.paragraphSpacing = max(style.paragraphSpacing, 5)
                 result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
                 NativeRichTextNoteFormatting.removeNeutralQuoteBackground(in: result, range: paragraphRange)
@@ -5173,8 +5251,9 @@ private struct RichTextTextView: UIViewRepresentable {
             ))
             paragraphContent.append(!contents.isEmpty)
             paragraphQuotes.append(NativeRichTextNoteFormatting.isQuoted(attributes))
-            paragraphLists.append(attributes[NativeRichTextNoteFormatting.listKey] as? Bool == true)
-            preservesParagraphLayout.append(hasAttachment || NativeRichTextNoteFormatting.block(in: attributes) != nil)
+            let isList = attributes[NativeRichTextNoteFormatting.listKey] as? Bool == true
+            paragraphLists.append(isList)
+            preservesParagraphLayout.append(hasAttachment || isList || NativeRichTextNoteFormatting.block(in: attributes) != nil)
         }
 
         let metadataRows: [NativeRichTextNoteParagraphHTMLMetadata?]
