@@ -366,7 +366,7 @@ private struct ExamAttemptDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var records: [StoredRecord]
     @AppStorage("native.exams.detail.verbalExpanded.v1") private var verbalExpanded = true
-    @AppStorage("native.exams.detail.reasoningExpanded.v1") private var reasoningExpanded = true
+    @AppStorage("native.exams.detail.reasoningExpanded.v1") private var reasoningExpanded = false
     @State private var showEdit = false
     @State private var showAddError = false
     let recordID: String
@@ -391,12 +391,12 @@ private struct ExamAttemptDetailView: View {
         GeometryReader { geometry in
             let horizontalPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
             let cardPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
-            let contentWidth = max(1, min(geometry.size.width - horizontalPadding * 2, 900) - cardPadding * 2)
+            let contentWidth = max(1, min(geometry.size.width, 900) - (horizontalPadding + cardPadding) * 2)
 
             ScrollView {
                 if let record {
                     VStack(alignment: .leading, spacing: 12) {
-                        summaryCard(padding: cardPadding, columns: contentWidth >= 480 ? 6 : 3)
+                        summaryCard(padding: cardPadding, columns: contentWidth >= 380 ? 4 : 2)
                         ExamReviewNoteCard(
                             record: record, note: ExamReviewNote(in: record.jsonObject ?? [:]),
                             padding: cardPadding, drafts: reviewDrafts
@@ -453,40 +453,56 @@ private struct ExamAttemptDetailView: View {
 
     private func summaryCard(padding: CGFloat, columns: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(type.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
-                Spacer(minLength: 8)
-                Text(formattedExamDate)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-
-            Text(object["name"] as? String ?? "未命名套卷")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text((object["name"] as? String)?.nilIfEmpty ?? "未命名套卷")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(formattedExamDate)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                VStack(alignment: .trailing, spacing: 2) {
+                    let maximum = maximumScoreValue
+                    Text(maximum == "100" || maximum == "—" ? "本次得分" : "本次得分 · 满分 \(maximum)")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                    Text(scoreValue)
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                .frame(maxWidth: columns == 4 ? 144 : 104, alignment: .trailing)
+                .accessibilityElement(children: .combine)
+            }
             Divider()
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .topLeading), count: columns),
-                      alignment: .leading, spacing: 8) {
-                detailMetric("本次得分", maximumScoreValue == "—" ? scoreValue : "\(scoreValue) / \(maximumScoreValue)",
-                             highlighted: true)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .topLeading), count: columns),
+                      alignment: .leading, spacing: 10) {
                 ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard(padding: padding)
+        .padding(.horizontal, padding)
+        .padding(.vertical, 13)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
 
     private var summaryMetrics: [ExamSummaryMetric] {
         let metrics = draft.metrics
+        let correct = metrics.correctCount.map(String.init) ?? "—"
+        let total = metrics.totalQuestions.map(String.init) ?? "—"
         return [
-            ExamSummaryMetric(title: "总题数", value: metrics.totalQuestions.map(String.init) ?? "—"),
-            ExamSummaryMetric(title: "答对", value: metrics.correctCount.map(String.init) ?? "—"),
+            ExamSummaryMetric(
+                title: "答对／总题数",
+                value: metrics.correctCount == nil && metrics.totalQuestions == nil ? "—" : "\(correct)/\(total)"
+            ),
             ExamSummaryMetric(title: "答错", value: metrics.wrongCount.map(String.init) ?? "—"),
             ExamSummaryMetric(title: "正确率", value: metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—"),
             ExamSummaryMetric(title: "本次用时", value: metrics.totalTimeSeconds.map(ExamDisplayFormatting.compactDuration) ?? "—")
@@ -494,14 +510,13 @@ private struct ExamAttemptDetailView: View {
     }
 
     private func resultCard(availableWidth: CGFloat, padding: CGFloat) -> some View {
-        let columns = moduleColumnWidths(for: availableWidth)
-        let rows = moduleDisplayRows
-        let header = moduleTableHeader(columns: columns)
+        let rows = visibleModuleRows
+        let metrics = draft.metrics
 
         return VStack(alignment: .leading, spacing: 8) {
-            Text("模块成绩")
-                .font(.system(size: 16, weight: .semibold))
+            Text("模块成绩").font(AppTheme.sectionTitleFont)
                 .foregroundStyle(.primary)
+                .accessibilityAddTraits(.isHeader)
 
             if rows.isEmpty {
                 Text("暂无模块成绩")
@@ -510,23 +525,14 @@ private struct ExamAttemptDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             } else {
-                header
-                ForEach(visibleModuleRows) { row in
-                    if row.startsGroup {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.07))
-                            .frame(height: 0.5)
-                            .padding(.vertical, 3)
-                    }
-                    moduleResultRow(row, columns: columns)
-                }
+                moduleTable(rows, columns: moduleColumnWidths(for: availableWidth))
             }
 
-            if !draft.metrics.conflictModules.isEmpty {
-                Text("重复模块有冲突：\(draft.metrics.conflictModules.sorted().joined(separator: "、"))")
+            if !metrics.conflictModules.isEmpty {
+                Text("重复模块有冲突：\(metrics.conflictModules.sorted().joined(separator: "、"))")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
             }
-            ForEach(draft.metrics.hierarchyWarnings, id: \.self) { warning in
+            ForEach(metrics.hierarchyWarnings, id: \.self) { warning in
                 Text(warning + "；按父项统计，不重复累计子项。")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
             }
@@ -535,16 +541,52 @@ private struct ExamAttemptDetailView: View {
         .nativeCard(padding: padding)
     }
 
+    private func moduleTable(_ rows: [ExamModuleDisplayRow], columns: ModuleColumnWidths) -> some View {
+        VStack(spacing: 3) {
+            moduleTableHeader(columns: columns)
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    if row.startsGroup {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.12))
+                            .frame(height: 0.5)
+                    }
+                    moduleResultRow(row, columns: columns)
+                        .background {
+                            if row.isChild {
+                                let startsChildren = index == 0 || row.startsGroup || !rows[index - 1].isChild
+                                let endsChildren = index == rows.count - 1
+                                    || rows[index + 1].startsGroup || !rows[index + 1].isChild
+                                UnevenRoundedRectangle(
+                                    topLeadingRadius: startsChildren ? 6 : 0,
+                                    bottomLeadingRadius: endsChildren ? 6 : 0,
+                                    bottomTrailingRadius: endsChildren ? 6 : 0,
+                                    topTrailingRadius: startsChildren ? 6 : 0
+                                )
+                                .fill(AppTheme.groupedBackground.opacity(0.72))
+                            }
+                        }
+                }
+            }
+        }
+    }
+
     private func moduleColumnWidths(for width: CGFloat) -> ModuleColumnWidths {
-        if width < 260 { return ModuleColumnWidths(correct: 50, accuracy: 48, time: 56, spacing: 4) }
-        if width < 300 { return ModuleColumnWidths(correct: 54, accuracy: 50, time: 60, spacing: 6) }
-        if width < 420 { return ModuleColumnWidths(correct: 64, accuracy: 58, time: 76, spacing: 8) }
-        return ModuleColumnWidths(correct: 88, accuracy: 72, time: 104, spacing: 12)
+        if width < 260 { return ModuleColumnWidths(correct: 50, accuracy: 48, time: 56, spacing: 4, inset: 4) }
+        if width < 300 { return ModuleColumnWidths(correct: 54, accuracy: 50, time: 60, spacing: 6, inset: 5) }
+        if width < 420 { return ModuleColumnWidths(correct: 64, accuracy: 58, time: 76, spacing: 8, inset: 7) }
+        let innerWidth = width - 20
+        return ModuleColumnWidths(
+            correct: innerWidth * 0.17, accuracy: innerWidth * 0.24 - 12,
+            time: innerWidth * 0.20 - 12, spacing: 12, inset: 10,
+            showsAccuracyBar: width >= 460
+        )
     }
 
     private func moduleTableHeader(columns: ModuleColumnWidths) -> some View {
         HStack(alignment: .bottom, spacing: columns.spacing) {
             Text("模块")
+                .padding(.leading, 18)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("答对/题数")
                 .frame(width: columns.correct, alignment: .trailing)
@@ -555,7 +597,11 @@ private struct ExamAttemptDetailView: View {
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
-        .padding(.bottom, 2)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .padding(.horizontal, columns.inset)
+        .padding(.vertical, 6)
+        .background(AppTheme.groupedBackground, in: RoundedRectangle(cornerRadius: 6))
         .accessibilityElement(children: .combine)
     }
 
@@ -564,31 +610,38 @@ private struct ExamAttemptDetailView: View {
         let rawAccuracy = displayValue(row.result?.reportedAccuracy)
         let accuracy = rawAccuracy == "—" || rawAccuracy.hasSuffix("%") ? rawAccuracy : "\(rawAccuracy)%"
         let time = Int(row.result?.timeSeconds ?? "").map(ExamDisplayFormatting.compactDuration) ?? "—"
-        let minimumHeight: CGFloat = row.isFoldableParent ? 44 : (row.isChild ? 34 : 38)
+        let percentage = Double(rawAccuracy.trimmingCharacters(in: CharacterSet(charactersIn: " %％")))
+        let minimumHeight: CGFloat = row.isFoldableParent ? 44 : (row.isChild ? 29 : 37)
 
         let content = HStack(alignment: .center, spacing: columns.spacing) {
             HStack(alignment: .center, spacing: 4) {
-                if row.isFoldableParent {
-                    Image(systemName: isExpanded(row.parentSubject) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 14)
-                }
+                Image(systemName: isExpanded(row.parentSubject) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14)
+                    .opacity(row.isFoldableParent ? 1 : 0)
+                    .accessibilityHidden(true)
                 Text(row.subject)
-                    .font(row.isChild ? .system(size: 14) : .system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .font(row.isChild ? .system(size: 13) : .system(size: 15, weight: .semibold))
+                    .foregroundStyle(row.isChild ? Color.secondary : Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.leading, row.isChild ? 16 : 0)
             .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
 
-            moduleValue(counts, minimumHeight: minimumHeight)
+            moduleValue(counts, isChild: row.isChild)
                 .frame(width: columns.correct, alignment: .trailing)
-            moduleValue(accuracy, minimumHeight: minimumHeight)
-                .frame(width: columns.accuracy, alignment: .trailing)
-            moduleValue(time, minimumHeight: minimumHeight)
+            HStack(spacing: 6) {
+                if !row.isChild, columns.showsAccuracyBar, let percentage, (0...100).contains(percentage) {
+                    accuracyBar(percentage)
+                }
+                moduleValue(accuracy, isChild: row.isChild, emphasized: !row.isChild)
+            }
+            .frame(width: columns.accuracy, alignment: .trailing)
+            moduleValue(time, isChild: row.isChild)
                 .frame(width: columns.time, alignment: .trailing)
         }
+        .padding(.horizontal, columns.inset)
 
         return Group {
             if row.isFoldableParent {
@@ -596,7 +649,7 @@ private struct ExamAttemptDetailView: View {
                     content.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(row.subject)
+                .accessibilityLabel("\(row.subject)，答对 \(counts)，正确率 \(accuracy)，用时 \(time)")
                 .accessibilityValue(isExpanded(row.parentSubject) ? "已展开" : "已收起")
                 .accessibilityHint("轻点切换子模块显示")
             } else {
@@ -606,16 +659,28 @@ private struct ExamAttemptDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func moduleValue(_ value: String, minimumHeight: CGFloat) -> some View {
+    private func moduleValue(_ value: String, isChild: Bool, emphasized: Bool = false) -> some View {
         Text(value)
-            .font(.system(size: 14))
-            .foregroundStyle(.primary)
+            .font(.system(size: isChild ? 13 : 14, weight: emphasized ? .semibold : .regular))
+            .foregroundStyle(isChild ? Color.secondary : Color.primary)
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func accuracyBar(_ percentage: Double) -> some View {
+        Capsule()
+            .fill(Color.primary.opacity(0.07))
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(AppTheme.accent.opacity(0.48))
+                    .frame(width: 34 * CGFloat(percentage / 100))
+            }
+            .frame(width: 34, height: 4)
+            .accessibilityHidden(true)
     }
 
     private func displayValue(_ value: String?) -> String {
@@ -690,62 +755,61 @@ private struct ExamAttemptDetailView: View {
 
     private func linkedErrorsCard(padding: CGFloat) -> some View {
         let linkedErrors = self.linkedErrors
+        let header = linkedErrorHeader(count: linkedErrors.count)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("关联错题")
-                .font(.system(.title3, weight: .semibold))
-                .foregroundStyle(.primary)
-
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
-                    linkedErrorSummary(count: linkedErrors.count)
+                    header
                     Spacer(minLength: 0)
                     linkedErrorActions
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    linkedErrorSummary(count: linkedErrors.count)
+                VStack(alignment: .leading, spacing: 4) {
+                    header
                     linkedErrorActions
                 }
             }
 
-            if linkedErrors.isEmpty {
-                Text("尚未关联错题")
-                    .font(.system(.body))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(linkedErrors, id: \.recordID) { error in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(error.title)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
+            ForEach(linkedErrors, id: \.recordID) { error in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(error.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    let metadata = [error.subject, error.moduleDisplayTitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                    if !metadata.isEmpty {
+                        Text(metadata)
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        let metadata = [error.subject, error.moduleDisplayTitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-                        if !metadata.isEmpty {
-                            Text(metadata)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-                    .overlay(alignment: .bottom) {
-                        if error.recordID != linkedErrors.last?.recordID {
-                            Rectangle().fill(Color.primary.opacity(0.06)).frame(height: 0.5)
-                        }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+                .overlay(alignment: .bottom) {
+                    if error.recordID != linkedErrors.last?.recordID {
+                        Rectangle().fill(Color.primary.opacity(0.06)).frame(height: 0.5)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard(padding: padding)
+        .padding(.horizontal, padding)
+        .padding(.vertical, 13)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
 
-    private func linkedErrorSummary(count: Int) -> some View {
+    private func linkedErrorHeader(count: Int) -> some View {
         let wrongCount = draft.metrics.wrongCount.map(String.init) ?? "—"
-        return Text("本次答错 \(wrongCount) 题 · 已关联 \(count) 题")
-        .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("关联错题")
+                .font(AppTheme.sectionTitleFont)
+                .foregroundStyle(.primary)
+                .accessibilityAddTraits(.isHeader)
+            Text("本次答错 \(wrongCount) 题 · 已关联 \(count) 题")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var linkedErrorActions: some View {
@@ -755,27 +819,23 @@ private struct ExamAttemptDetailView: View {
                 Button("新增并关联错题") { showAddError = true }
             }
         } label: {
-            Text("关联错题")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(AppTheme.accent)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            ExamDetailActionLabel(title: "选择错题")
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("关联错题")
+        .accessibilityLabel("选择错题")
     }
 
-    private func detailMetric(_ title: String, _ value: String, highlighted: Bool = false) -> some View {
+    private func detailMetric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             Text(value)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(highlighted ? AppTheme.accent : Color.primary)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -788,6 +848,8 @@ private struct ModuleColumnWidths {
     let accuracy: CGFloat
     let time: CGFloat
     let spacing: CGFloat
+    let inset: CGFloat
+    var showsAccuracyBar = false
 }
 
 private extension String {

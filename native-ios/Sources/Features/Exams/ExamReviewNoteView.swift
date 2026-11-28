@@ -41,6 +41,21 @@ struct ExamReviewNoteContent: View {
     }
 }
 
+struct ExamDetailActionLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(AppTheme.accent)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
+
 @MainActor
 struct ExamReviewNoteCard: View {
     @Environment(\.modelContext) private var modelContext
@@ -63,28 +78,21 @@ struct ExamReviewNoteCard: View {
     }
 
     var body: some View {
-        let hasNote = note.summary != nil
+        let showsEmptyNote = edit == nil && note.summary == nil
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("复盘备注")
-                    .font(.system(size: 15, weight: .semibold))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                if edit == nil {
-                    Button(hasNote ? "编辑备注" : "写备注", action: beginEditing)
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("exam-review-note-edit")
-                }
-            }
-            if let edit {
-                noteForm(edit.note)
-            } else if hasNote {
-                ExamReviewNoteContent(note: note)
+            if showsEmptyNote {
+                emptyNoteHeader
             } else {
-                Text("还没有复盘备注")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                HStack {
+                    noteTitle
+                    Spacer()
+                    if edit == nil { editNoteButton("编辑备注") }
+                }
+                if let edit {
+                    noteForm(edit.note)
+                } else {
+                    ExamReviewNoteContent(note: note)
+                }
             }
             if let errorMessage {
                 Text(errorMessage)
@@ -97,7 +105,9 @@ struct ExamReviewNoteCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard(padding: padding)
+        .padding(.horizontal, padding)
+        .padding(.vertical, showsEmptyNote ? 11 : padding)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
         .onChange(of: edit) { _, draft in drafts.drafts[record.recordID] = draft }
         .onDisappear {
             if let snapshot = session.captureSnapshot(), snapshot.userEditRevision > 0 {
@@ -105,6 +115,40 @@ struct ExamReviewNoteCard: View {
             }
             drafts.drafts[record.recordID] = edit
         }
+    }
+
+    private var noteTitle: some View {
+        Text("复盘备注")
+            .font(AppTheme.sectionTitleFont)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var emptyNoteHeader: some View {
+        let label = VStack(alignment: .leading, spacing: 5) {
+            noteTitle
+            Text("还没有复盘备注")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+        }
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                label
+                Spacer(minLength: 0)
+                editNoteButton("写备注")
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                label
+                editNoteButton("写备注")
+            }
+        }
+    }
+
+    private func editNoteButton(_ title: String) -> some View {
+        Button(action: beginEditing) {
+            ExamDetailActionLabel(title: title)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("exam-review-note-edit")
     }
 
     private func noteForm(_ startingNote: ExamReviewNote) -> some View {
