@@ -158,44 +158,42 @@ struct LibraryKnowledgePointTagCloud: View {
         switch kind {
         case .knowledgePoint:
             Image(systemName: "lightbulb.min")
-                .font(.system(size: 11, weight: .light))
+                .font(.system(size: Self.iconWidth, weight: .regular))
                 .foregroundStyle(AppTheme.accent)
         case .mistakeTag:
-            MistakeCorrectionPath()
-                .stroke(Color.secondary, style: StrokeStyle(lineWidth: 0.75, lineCap: .round, lineJoin: .round))
+            MistakeAnnotationIcon()
+                .stroke(Color.secondary, style: StrokeStyle(lineWidth: 0.85, lineCap: .round, lineJoin: .round))
         }
     }
 }
 
-private struct MistakeCorrectionPath: Shape {
+private struct MistakeAnnotationIcon: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
 
-        path.addEllipse(in: CGRect(x: 4.5, y: 17.6, width: 3, height: 3))
-        path.move(to: CGPoint(x: 6, y: 17.6))
-        path.addLine(to: CGPoint(x: 6, y: 11.6))
-        path.addQuadCurve(to: CGPoint(x: 8.7, y: 8.9), control: CGPoint(x: 6, y: 8.9))
-        path.addLine(to: CGPoint(x: 18, y: 8.9))
+        path.move(to: CGPoint(x: 9.8, y: 21))
+        path.addLine(to: CGPoint(x: 5.2, y: 21))
+        path.addQuadCurve(to: CGPoint(x: 3.7, y: 19.5), control: CGPoint(x: 3.7, y: 21))
+        path.addLine(to: CGPoint(x: 3.7, y: 4.2))
+        path.addQuadCurve(to: CGPoint(x: 5.2, y: 2.7), control: CGPoint(x: 3.7, y: 2.7))
+        path.addLine(to: CGPoint(x: 13.6, y: 2.7))
+        path.addLine(to: CGPoint(x: 18.2, y: 7.3))
+        path.addLine(to: CGPoint(x: 18.2, y: 10))
 
-        path.move(to: CGPoint(x: 8.7, y: 8.9))
-        path.addQuadCurve(to: CGPoint(x: 11.4, y: 11.6), control: CGPoint(x: 11.4, y: 8.9))
-        path.addLine(to: CGPoint(x: 11.4, y: 13.85))
-        path.addQuadCurve(to: CGPoint(x: 13.9, y: 16.35), control: CGPoint(x: 11.4, y: 16.35))
-        path.addLine(to: CGPoint(x: 16.2, y: 16.35))
+        path.move(to: CGPoint(x: 13.6, y: 2.7))
+        path.addLine(to: CGPoint(x: 13.6, y: 7.3))
+        path.addLine(to: CGPoint(x: 18.2, y: 7.3))
 
-        path.move(to: CGPoint(x: 16, y: 7))
-        path.addLine(to: CGPoint(x: 18, y: 8.9))
-        path.addLine(to: CGPoint(x: 16, y: 10.8))
+        path.move(to: CGPoint(x: 7, y: 8.9))
+        path.addLine(to: CGPoint(x: 10.1, y: 8.9))
+        path.move(to: CGPoint(x: 7, y: 12.2))
+        path.addLine(to: CGPoint(x: 10.3, y: 12.2))
 
-        path.move(to: CGPoint(x: 17.5, y: 14.7))
-        path.addLine(to: CGPoint(x: 20.6, y: 17.8))
-        path.move(to: CGPoint(x: 20.6, y: 14.7))
-        path.addLine(to: CGPoint(x: 17.5, y: 17.8))
-
-        path.move(to: CGPoint(x: 5.1, y: 5))
-        path.addLine(to: CGPoint(x: 7.25, y: 5))
-        path.move(to: CGPoint(x: 6.2, y: 3.9))
-        path.addLine(to: CGPoint(x: 6.2, y: 6.1))
+        path.addEllipse(in: CGRect(x: 11.3, y: 12.1, width: 10.2, height: 10.2))
+        path.move(to: CGPoint(x: 14.8, y: 15.6))
+        path.addLine(to: CGPoint(x: 18, y: 18.8))
+        path.move(to: CGPoint(x: 18, y: 15.6))
+        path.addLine(to: CGPoint(x: 14.8, y: 18.8))
 
         return path.applying(CGAffineTransform(
             a: rect.width / 24, b: 0,
