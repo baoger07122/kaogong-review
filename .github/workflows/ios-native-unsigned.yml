@@ -233,6 +233,7 @@ jobs:
           RUN_NAVIGATION=false
           RUN_CONTRACTS=false
           RUN_SHENLUN=false
+          RUN_LIBRARY=false
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$RUN_SIMULATOR_TESTS" = "true" ]; then
             RUN_SIMULATOR=true
             RUN_QUESTION_BANK=true
@@ -247,6 +248,12 @@ jobs:
               RUN_SIMULATOR=true
               RUN_SHENLUN=true
             fi
+            if ! git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
+              'native-ios/Sources/Features/Library/Library*.swift' \
+              native-ios/Tests/Library; then
+              RUN_SIMULATOR=true
+              RUN_LIBRARY=true
+            fi
           else
             echo "Simulator builds and tests are disabled for this run."
           fi
@@ -255,6 +262,7 @@ jobs:
           echo "navigation=$RUN_NAVIGATION" >> "$GITHUB_OUTPUT"
           echo "contracts=$RUN_CONTRACTS" >> "$GITHUB_OUTPUT"
           echo "shenlun=$RUN_SHENLUN" >> "$GITHUB_OUTPUT"
+          echo "library=$RUN_LIBRARY" >> "$GITHUB_OUTPUT"
           echo "Run focused simulator tests: $RUN_SIMULATOR"
 
       - name: Test native keypad geometry
@@ -452,13 +460,20 @@ jobs:
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
           RUN_SHENLUN: ${{ steps.simulator_scope.outputs.shenlun }}
+          RUN_LIBRARY: ${{ steps.simulator_scope.outputs.library }}
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
           TEST_SCHEME=KaogongReviewNative
           RESULT_PATH=build/SpeedInteraction.xcresult
           DERIVED_DATA_PATH=build/NativeTestDerivedData
-          if [ "$RUN_QUESTION_BANK" = "true" ]; then
+          if [ "$RUN_LIBRARY" = "true" ]; then
+            TEST_ARGS=(
+              -only-testing:SpeedAnimationTests/LibraryDoodleExitSessionTests
+              -only-testing:SpeedAnimationTests/LibraryErrorEditAndNoteTests
+              -only-testing:SpeedAnimationTests/JudgmentReasoningModuleTests
+            )
+          elif [ "$RUN_QUESTION_BANK" = "true" ]; then
             TEST_SCHEME=QuestionBankImport
             RESULT_PATH=build/QuestionBankImport.xcresult
             DERIVED_DATA_PATH=build/QuestionBankImportDerivedData

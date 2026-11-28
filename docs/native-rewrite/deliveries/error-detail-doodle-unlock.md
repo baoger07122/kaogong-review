@@ -1,6 +1,6 @@
 # 错题涂鸦退出锁定整改记录
 
-对应[实现规格](../ERROR_DETAIL_DOODLE_UNLOCK_SPEC.md)。
+对应[实现规格](../ERROR_DETAIL_DOODLE_UNLOCK_SPEC.md)。本轮发布版本：11.28.1 / Build 170。
 
 | 项目 | 实现与检查 |
 | --- | --- |
