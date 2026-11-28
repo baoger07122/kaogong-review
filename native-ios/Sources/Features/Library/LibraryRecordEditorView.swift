@@ -743,7 +743,7 @@ struct LibraryRecordEditorView: View {
         HStack(spacing: 8) {
             if kind == .notes {
                 noteSubjectPicker
-                noteModulePicker
+                if !isDataAnalysis { noteModulePicker }
             } else {
                 subjectPicker
                 modulePicker
@@ -790,9 +790,7 @@ struct LibraryRecordEditorView: View {
                     guard draft.subject != subject.name else { return }
                     draft.errorTypeID = nil
                     draft.subject = subject.name
-                    draft.module = subject.name == "数量关系"
-                        ? ""
-                        : (subject.modules.first ?? "")
+                    draft.module = subject.libraryModules.first ?? ""
                     prefillGraphOptionsIfNeeded()
                 }
             }
@@ -807,14 +805,14 @@ struct LibraryRecordEditorView: View {
                 compactProperty(title: "题型", value: draft.module, image: "square.stack.3d.up")
             }
             .buttonStyle(.plain)
-        } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
+        } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.libraryModules.isEmpty {
             Menu {
-                ForEach(subject.modules, id: \.self) { module in
+                ForEach(subject.libraryModules, id: \.self) { module in
                     Button(SubjectDefinition.moduleTitle(module, subject: subject.name)) {
                         if let subject = LibraryErrorTypeSubject(rawValue: draft.subject),
                            let errorType = LibraryErrorTypeRepository.types(for: subject, records: records)
                             .first(where: { $0.id == draft.errorTypeID }),
-                           !isErrorTypeAvailable(errorType, subject: subject, module: module) {
+                           !subject.accepts(errorType, in: module) {
                             draft.errorTypeID = nil
                         }
                         draft.module = module
@@ -865,18 +863,7 @@ struct LibraryRecordEditorView: View {
     private var availableErrorTypes: [LibraryErrorType] {
         guard let subject = LibraryErrorTypeSubject(rawValue: draft.subject) else { return [] }
         let types = LibraryErrorTypeRepository.types(for: subject, records: records)
-        if subject == .verbalReasoning {
-            return types.filter { $0.module == draft.module }
-        }
-        return types.filter { $0.isAvailable(in: draft.module) }
-    }
-
-    private func isErrorTypeAvailable(
-        _ type: LibraryErrorType,
-        subject: LibraryErrorTypeSubject,
-        module: String
-    ) -> Bool {
-        subject == .verbalReasoning ? type.module == module : type.isAvailable(in: module)
+        return types.filter { subject.accepts($0, in: draft.module) }
     }
 
     @ViewBuilder private var errorTypePicker: some View {

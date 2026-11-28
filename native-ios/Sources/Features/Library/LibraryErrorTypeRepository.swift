@@ -21,6 +21,14 @@ enum LibraryErrorTypeSubject: String, CaseIterable, Hashable {
     var modules: [String] {
         return SubjectDefinition.all.first { $0.name == rawValue }?.modules ?? []
     }
+
+    func accepts(_ type: LibraryErrorType, in module: String) -> Bool {
+        switch self {
+        case .dataAnalysis: true
+        case .verbalReasoning: type.module == module
+        case .judgmentReasoning, .commonKnowledge: type.isAvailable(in: module)
+        }
+    }
 }
 
 struct LibraryErrorType: Identifiable, Equatable {
@@ -72,7 +80,8 @@ enum LibraryErrorTypeRepository {
         records: [StoredRecord],
         context: ModelContext
     ) throws {
-        let otherModules = self.types(for: subject, records: records).filter { $0.module != module }
+        let otherModules = subject == .dataAnalysis
+            ? [] : self.types(for: subject, records: records).filter { $0.module != module }
         let value = (otherModules + types).map { type in
             var entry = ["id": type.id, "name": type.name]
             entry["module"] = type.module

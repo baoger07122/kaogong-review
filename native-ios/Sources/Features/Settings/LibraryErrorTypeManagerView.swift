@@ -79,10 +79,16 @@ struct LibraryErrorTypeManagerView: View {
     @State private var errorMessage: String?
 
     private var types: [LibraryErrorType] {
-        LibraryErrorTypeRepository.types(for: subject, records: records).filter { $0.module == module }
+        let entries = LibraryErrorTypeRepository.types(for: subject, records: records)
+        return subject == .dataAnalysis ? entries : entries.filter { $0.module == module }
     }
 
-    private var typeLabel: String { "题型" }
+    private var typeLabel: String { subject == .dataAnalysis ? "错误类型" : "题型" }
+
+    private var navigationTitle: String {
+        if subject == .dataAnalysis { return subject.rawValue }
+        return module.map { SubjectDefinition.moduleTitle($0, subject: subject.rawValue) } ?? "原有通用类型"
+    }
 
     private var canAddType: Bool {
         subject != .verbalReasoning || module != nil
@@ -119,7 +125,7 @@ struct LibraryErrorTypeManagerView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
-        .navigationTitle(module.map { SubjectDefinition.moduleTitle($0, subject: subject.rawValue) } ?? "原有通用类型")
+        .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isEditing {

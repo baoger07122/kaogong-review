@@ -160,7 +160,11 @@ struct SettingsView: View {
                     if name == "数量关系" {
                         QuantityQuestionTypeManagerView()
                     } else if let subject = LibraryErrorTypeSubject(rawValue: name) {
-                        LibraryErrorTypeModulesView(subject: subject)
+                        if subject == .dataAnalysis {
+                            LibraryErrorTypeManagerView(subject: subject)
+                        } else {
+                            LibraryErrorTypeModulesView(subject: subject)
+                        }
                     } else {
                         ContentUnavailableView("暂无题型目录", systemImage: "square.stack.3d.up")
                     }

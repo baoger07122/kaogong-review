@@ -2634,7 +2634,7 @@ struct LibraryRecordDetailView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let type = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
                 .first(where: {
-                    $0.id == typeID && (typeSubject == .verbalReasoning ? $0.module == module : $0.isAvailable(in: module))
+                    $0.id == typeID && typeSubject.accepts($0, in: module)
                 }) else { return nil }
         let name = type.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
@@ -3226,7 +3226,7 @@ struct LibraryRecordDetailView: View {
         let storedSubject = previousSubject ?? record?.subject
         let localSubject = storedSubject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return localSubject.isEmpty
-            ? (displayQuestionBankContext?.typeMapping.subject ?? scope.subject ?? "")
+            ? (firstText(["subject"]) ?? displayQuestionBankContext?.typeMapping.subject ?? scope.subject ?? "")
             : localSubject
     }
 
@@ -3234,6 +3234,9 @@ struct LibraryRecordDetailView: View {
         let previousModule = displaysPreviousQuestionSnapshot ? object["module"] as? String : nil
         let storedModule = previousModule ?? record?.module
         let localModule = storedModule?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if localModule.isEmpty, activeSubject == SubjectDefinition.dataAnalysisSubject {
+            return object["module"] as? String ?? ""
+        }
         return localModule.isEmpty
             ? (displayQuestionBankContext?.typeMapping.module ?? scope.module ?? "")
             : localModule

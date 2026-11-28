@@ -65,6 +65,69 @@ final class LibraryErrorEditAndNoteTests: XCTestCase {
         XCTAssertEqual(LibraryRecordSnapshot(record: record).errorEntryDate, payloadDate)
     }
 
+    func testDataAnalysisOpensOneScopeForEveryStoredModule() throws {
+        let subject = "资料分析"
+        let scope = LibraryScope(subject: subject, module: "综合题")
+        XCTAssertNil(scope.module)
+        XCTAssertEqual(scope.title, subject)
+        for (index, module) in ["单题", "综合题", "文字材料", nil].enumerated() {
+            var object: [String: Any] = ["subject": subject, "title": "题目", "images": ["legacy-image"]]
+            object["module"] = module
+            let record = StoredRecord(
+                collection: "errors", recordID: "analysis-\(index)",
+                payload: try JSONSerialization.data(withJSONObject: object),
+                subject: index == 3 ? nil : subject, module: module
+            )
+            XCTAssertTrue(scope.contains(record))
+            XCTAssertNil(record.moduleDisplayTitle)
+            XCTAssertEqual(
+                SubjectModuleTitle.errorDetailTitle(
+                    recordModule: module, payloadModule: module, questionBankModule: nil, subject: subject
+                ),
+                subject
+            )
+            let snapshot = LibraryRecordSnapshot(record: record, includeImages: true)
+            XCTAssertTrue(snapshot.usesSingleCardImagePreview)
+            XCTAssertTrue(snapshot.usesDataAnalysisMaterialLayout)
+        }
+        let type = LibraryErrorType(id: "old-composite", name: "作答策略", module: "综合题")
+        XCTAssertTrue(LibraryErrorTypeSubject.dataAnalysis.accepts(type, in: ""))
+        XCTAssertTrue(LibraryErrorTypeSubject.dataAnalysis.accepts(type, in: "单题"))
+    }
+
+    func testDataAnalysisSavePreservesLegacyModuleButOmitsItForNewQuestions() async throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: StoredRecord.self, configurations: configuration)
+        let context = container.mainContext
+        let scope = LibraryScope(subject: "资料分析")
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "subject": "资料分析", "module": "单题", "title": "原题干", "reviewSource": "real"
+        ])
+        let original = StoredRecord(
+            collection: "errors", recordID: "legacy-analysis", payload: payload,
+            subject: "资料分析", module: "综合题"
+        )
+        context.insert(original)
+        try context.save()
+
+        var edited = LibraryRecordDraft(kind: .errors, scope: scope, record: original)
+        edited.title = "新题干"
+        _ = try await LibraryRecordRepository.save(kind: .errors, draft: edited, records: [original], context: context)
+        XCTAssertEqual(original.module, "综合题")
+        XCTAssertEqual(original.jsonObject?["module"] as? String, "单题")
+        XCTAssertEqual(original.jsonObject?["title"] as? String, "新题干")
+
+        var fresh = LibraryRecordDraft(kind: .errors, scope: scope)
+        XCTAssertTrue(fresh.module.isEmpty)
+        fresh.title = "另一题"
+        fresh.module = "综合题" // A draft saved before the groups were removed.
+        let newID = try await LibraryRecordRepository.save(kind: .errors, draft: fresh, records: [original], context: context)
+        let created = try XCTUnwrap(context.fetch(FetchDescriptor<StoredRecord>()).first { $0.recordID == newID })
+        XCTAssertNil(created.module)
+        XCTAssertNil(created.jsonObject?["module"])
+        XCTAssertTrue(scope.contains(created))
+    }
+
     func testQuoteRemovesGrayFillAndPreservesColoredHighlight() {
         let text = NSMutableAttributedString(string: "引用高亮")
         text.addAttribute(.backgroundColor, value: UIColor.lightGray, range: NSRange(location: 0, length: 2))

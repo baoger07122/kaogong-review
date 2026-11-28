@@ -13,6 +13,7 @@ struct LibraryTagDisplaySettings: Codable, Equatable {
 
 struct LibraryTagDisplayScope {
     fileprivate static let quantity = Self(subject: "数量关系", moduleName: nil)
+    fileprivate static let dataAnalysis = Self(subject: SubjectDefinition.dataAnalysisSubject, moduleName: nil)
 
     private let subject: String
     private let module: String?
@@ -24,8 +25,8 @@ struct LibraryTagDisplayScope {
 
     init?(subject: String, module: String) {
         let subject = SubjectModuleTitle.normalized(subject)
-        if subject == Self.quantity.subject {
-            self = .quantity
+        if subject == Self.quantity.subject || subject == Self.dataAnalysis.subject {
+            self.init(subject: subject, moduleName: nil)
             return
         }
 
@@ -41,6 +42,12 @@ struct LibraryTagDisplayScope {
 
     fileprivate var storageKey: String {
         "module:\(Self.keyPart(subject)):\(Self.keyPart(module ?? ""))"
+    }
+
+    fileprivate static var legacyDataAnalysisKeys: [String] {
+        LibraryErrorTypeSubject.dataAnalysis.modules.map {
+            Self(subject: dataAnalysis.subject, moduleName: $0).storageKey
+        }
     }
 
     private static func keyPart(_ value: String) -> String {
@@ -89,6 +96,13 @@ final class LibraryTagDisplayPreferences: ObservableObject {
         for (key, settings) in typedSettingsByModule where decoded.settingsByScope[key] == nil {
             if let first = settings.first, settings.allSatisfy({ $0 == first }) {
                 decoded.settingsByScope[key] = first
+            }
+        }
+        let analysisKey = LibraryTagDisplayScope.dataAnalysis.storageKey
+        if decoded.settingsByScope[analysisKey] == nil {
+            let saved = LibraryTagDisplayScope.legacyDataAnalysisKeys.compactMap { decoded.settingsByScope[$0] }
+            if let first = saved.first, saved.allSatisfy({ $0 == first }) {
+                decoded.settingsByScope[analysisKey] = first
             }
         }
         return decoded

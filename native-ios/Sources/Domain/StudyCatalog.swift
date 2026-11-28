@@ -8,8 +8,9 @@ struct SubjectDefinition: Identifiable, Hashable {
 
     var id: String { name }
     var isFlat: Bool { name == "数量关系" }
+    var libraryModules: [String] { name == Self.dataAnalysisSubject ? [] : modules }
 
-    static let legacyDataAnalysisModules: Set<String> = ["文字材料", "表格材料", "图表材料", "综合材料"]
+    static let dataAnalysisSubject = "资料分析"
 
     // Existing records and tag catalogs share this module key.
     static let argumentReasoningModule = "逻辑判断"
@@ -19,6 +20,11 @@ struct SubjectDefinition: Identifiable, Hashable {
         (subject == nil || subject == "判断推理") && module == argumentReasoningModule ? "论证推理" : module
     }
 
+    static func libraryModuleTitle(_ module: String?, subject: String?) -> String? {
+        guard subject != dataAnalysisSubject, let module, !module.isEmpty else { return nil }
+        return moduleTitle(module, subject: subject)
+    }
+
     static let all: [SubjectDefinition] = [
         .init(name: "言语理解", systemImage: "book", color: .blue,
               modules: ["逻辑填空", "中心理解", "标题填入", "接语选择", "语句填入", "语句排序", "细节判断题", "词句理解题"]),
@@ -26,7 +32,7 @@ struct SubjectDefinition: Identifiable, Hashable {
               modules: []),
         .init(name: "判断推理", systemImage: "square.grid.2x2", color: .green,
               modules: ["图形推理", "定义判断", "类比推理", argumentReasoningModule, formalLogicModule]),
-        .init(name: "资料分析", systemImage: "chart.bar", color: .purple,
+        .init(name: dataAnalysisSubject, systemImage: "chart.bar", color: .purple,
               modules: ["单题", "综合题"]),
         .init(name: "常识判断", systemImage: "lightbulb", color: .yellow,
               modules: ["政治", "法律", "经济", "人文", "科技", "地理"]),
@@ -37,7 +43,8 @@ struct SubjectDefinition: Identifiable, Hashable {
 
 extension StoredRecord {
     var moduleDisplayTitle: String? {
-        module.map { SubjectDefinition.moduleTitle($0, subject: subject) }
+        guard let module, !module.isEmpty else { return nil }
+        return SubjectDefinition.libraryModuleTitle(module, subject: subject ?? indexObject?["subject"] as? String)
     }
 }
 

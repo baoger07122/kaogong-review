@@ -108,7 +108,8 @@ private struct ReviewRecordSnapshot: Sendable {
         let subject = storedSubject.isEmpty ? indexedSubject : storedSubject
         self.recordID = input.recordID
         self.subject = subject.isEmpty && (object["isShenlun"] as? Bool) == true ? "申论" : (subject.isEmpty ? "未分类" : subject)
-        self.module = input.module ?? (object["module"] as? String ?? "")
+        self.module = subject == SubjectDefinition.dataAnalysisSubject
+            ? "" : (input.module ?? (object["module"] as? String ?? ""))
         self.status = object["status"] as? String ?? ""
         self.lastReviewDate = Self.parseDate(object["lastReviewDate"])
         self.createdAt = input.createdAt ?? .distantPast
@@ -296,7 +297,12 @@ struct ReviewView: View {
                         Text("模块复习概览").font(AppTheme.sectionTitleFont)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
                             ForEach(overview.moduleStats) { stat in
-                                Button { start(subject: stat.subject, module: stat.module) } label: {
+                                Button {
+                                    start(
+                                        subject: stat.subject,
+                                        module: stat.subject == SubjectDefinition.dataAnalysisSubject ? nil : stat.module
+                                    )
+                                } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(stat.module.isEmpty ? stat.subject : SubjectDefinition.moduleTitle(stat.module, subject: stat.subject))
                                             .font(AppTheme.inputFont.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)

@@ -724,7 +724,7 @@ private struct ExamLinkedErrorCandidate: Identifiable {
     let module: String?
 
     var displayMetadata: String {
-        [subject, module.map { SubjectDefinition.moduleTitle($0, subject: subject) }]
+        [subject, SubjectDefinition.libraryModuleTitle(module, subject: subject)]
             .compactMap { $0 }
             .joined(separator: " · ")
     }

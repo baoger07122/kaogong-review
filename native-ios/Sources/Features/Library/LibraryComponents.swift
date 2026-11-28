@@ -60,11 +60,12 @@ struct LibrarySidebar: View {
     ) -> some View {
         let expanded = expandedSubject == subject.name
         let selected = scope.subject == subject.name && scope.module == nil
+        let modules = subject.libraryModules
 
         Button {
             scope.subject = subject.name
             scope.module = nil
-            if subject.isFlat {
+            if modules.isEmpty {
                 expandedSubject = nil
             } else {
                 expandedSubject = expanded ? nil : subject.name
@@ -78,16 +79,16 @@ struct LibrarySidebar: View {
                 color: subject.color,
                 count: count(subject: subject.name, reviewSources: reviewSources),
                 selected: selected,
-                showsArrow: !subject.isFlat,
+                showsArrow: !modules.isEmpty,
                 expanded: expanded
             )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("library-subject-\(subject.name)")
 
-        if expanded && !subject.isFlat {
+        if expanded && !modules.isEmpty {
             VStack(spacing: 1) {
-                ForEach(subject.modules, id: \.self) { module in
+                ForEach(modules, id: \.self) { module in
                     Button {
                         scope = LibraryScope(subject: subject.name, module: module, reviewSource: scope.reviewSource)
                         onScopeChanged()
@@ -137,27 +138,6 @@ struct LibrarySidebar: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("library-module-\(subject.name)-\(module)")
                 }
-                if subject.name == "资料分析" {
-                    Button {
-                        scope = LibraryScope(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket, reviewSource: scope.reviewSource)
-                        onScopeChanged()
-                    } label: {
-                        HStack {
-                            Text("待分类").font(.system(size: 12, weight: scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? .semibold : .regular))
-                            Spacer(minLength: 4)
-                            let moduleCount = count(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket, reviewSources: reviewSources)
-                            if moduleCount > 0 { Text("\(moduleCount)").font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary) }
-                        }
-                        .padding(.leading, compact ? 14 : 42)
-                        .padding(.trailing, 12)
-                        .frame(height: compact ? 36 : 34)
-                        .foregroundStyle(scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? AppTheme.accent : Color.primary)
-                        .background(scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? AppTheme.accent.opacity(0.09) : Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("包含未分类及历史资料分析模块记录")
-                    .accessibilityIdentifier("library-module-资料分析-待分类")
-                }
             }
         }
     }
@@ -167,11 +147,11 @@ struct LibrarySidebar: View {
         module: String? = nil,
         reviewSources: [String: LibraryReviewSource]
     ) -> Int {
-        records.lazy.filter {
+        let countScope = LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource)
+        return records.lazy.filter {
             ["errors", "notes", "stickies"].contains($0.collection)
                 && reviewSources[$0.compoundID] == scope.reviewSource
-                && $0.subject == subject
-                && (module == nil || LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource).contains($0))
+                && countScope.contains($0)
         }.count
     }
 }
@@ -276,7 +256,7 @@ struct LibraryRecordCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if kind == .errors {
                 HStack(spacing: 5) {
-                    Label((snapshot.record.module?.isEmpty == false ? snapshot.record.moduleDisplayTitle : snapshot.record.subject) ?? "未分类", systemImage: "square.grid.2x2")
+                    Label(snapshot.record.moduleDisplayTitle ?? snapshot.record.subject ?? "未分类", systemImage: "square.grid.2x2")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -702,8 +682,7 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isDataAnalysisComposite: Bool {
-        SubjectModuleTitle.normalized(snapshot.subject) == "资料分析"
-            && SubjectModuleTitle.normalized(snapshot.module) == "综合题"
+        snapshot.usesDataAnalysisMaterialLayout
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
@@ -1396,8 +1375,7 @@ struct LibraryMasonryGrid: View {
         if usesMemoryCardPresentation {
             return estimatedMemoryCardHeight(of: record, availableWidth: availableWidth)
         }
-        let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
-            && SubjectModuleTitle.normalized(record.module) == "综合题"
+        let isDataAnalysisComposite = record.usesDataAnalysisMaterialLayout
         let isLogicFill = SubjectModuleTitle.normalized(record.subject) == "言语理解"
             && SubjectModuleTitle.normalized(record.module) == "逻辑填空"
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"

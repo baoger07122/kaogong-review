@@ -19,6 +19,7 @@ enum SubjectModuleTitle {
         questionBankModule: String?,
         subject: String?
     ) -> String {
+        if normalized(subject) == SubjectDefinition.dataAnalysisSubject { return SubjectDefinition.dataAnalysisSubject }
         let storedModule = [recordModule, payloadModule]
             .compactMap { value -> String? in
                 let normalized = normalized(value)

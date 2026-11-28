@@ -299,6 +299,9 @@ enum LibraryDraftStore {
            let snapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data) {
             return snapshot
         }
+        if scope.subject == SubjectDefinition.dataAnalysisSubject {
+            return recoverDataAnalysisDraft(kind: kind, scope: scope, destinationKey: storageKey)
+        }
         if scope.reviewSource == .real,
            let legacyData = UserDefaults.standard.data(forKey: legacyKey(kind: kind, scope: scope)),
            let legacySnapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: legacyData) {
@@ -311,6 +314,31 @@ enum LibraryDraftStore {
         UserDefaults.standard.set(legacyData, forKey: key(kind: kind, scope: scope, category: category))
         UserDefaults.standard.removeObject(forKey: legacyKey(kind: kind, scope: scope))
         return legacySnapshot
+    }
+
+    private static func recoverDataAnalysisDraft(
+        kind: LibraryContentKind, scope: LibraryScope, destinationKey: String
+    ) -> LibraryDraftSnapshot? {
+        let modules = LibraryErrorTypeSubject.dataAnalysis.modules + ["待分类", "未分类"]
+        let legacyScopes = modules.map { module in
+            var legacyScope = scope
+            legacyScope.module = module
+            return legacyScope
+        }
+        var keys = legacyScopes.map { key(kind: kind, scope: $0) }
+        if scope.reviewSource == .real {
+            keys += ([scope] + legacyScopes).map { legacyKey(kind: kind, scope: $0) }
+        }
+        let defaults = UserDefaults.standard
+        for key in keys where key != destinationKey {
+            guard let data = defaults.data(forKey: key),
+                  let snapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data),
+                  snapshot.hasUserContent else { continue }
+            defaults.set(data, forKey: destinationKey)
+            if defaults.data(forKey: destinationKey) == data { defaults.removeObject(forKey: key) }
+            return snapshot
+        }
+        return nil
     }
 
     static func save(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) {

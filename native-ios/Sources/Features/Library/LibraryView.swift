@@ -967,12 +967,13 @@ struct LibraryView: View {
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { SubjectModuleTitle.normalized($0) } ?? ""
+        if LibraryRecordSnapshot.usesSingleCardImagePreview(subject: subject) { return true }
+        guard subject == "判断推理" else { return false }
         let module = [record.module, indexObject["module"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { SubjectModuleTitle.normalized($0) } ?? ""
-        return (subject == "判断推理" && module == "图形推理")
-            || LibraryRecordSnapshot.usesSingleCardImagePreview(subject: subject, module: module)
+        return module == "图形推理"
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }

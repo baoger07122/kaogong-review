@@ -152,11 +152,15 @@ struct LinkedWordDetailTarget: Identifiable, Hashable {
 }
 
 struct LibraryScope: Equatable {
-    static let dataAnalysisReviewBucket = "待分类"
-
     var subject: String?
     var module: String?
-    var reviewSource: LibraryReviewSource = .real
+    var reviewSource: LibraryReviewSource
+
+    init(subject: String? = nil, module: String? = nil, reviewSource: LibraryReviewSource = .real) {
+        self.subject = subject
+        self.module = subject == SubjectDefinition.dataAnalysisSubject ? nil : module
+        self.reviewSource = reviewSource
+    }
 
     var isAll: Bool { subject == nil }
     var hasModuleContext: Bool {
@@ -173,16 +177,11 @@ struct LibraryScope: Equatable {
 
     func contains(_ record: StoredRecord) -> Bool {
         guard let subject else { return true }
+        if subject == SubjectDefinition.dataAnalysisSubject {
+            return (record.subject ?? record.indexObject?["subject"] as? String) == subject
+        }
         guard record.subject == subject else { return false }
         guard let module else { return true }
-        if subject == "资料分析", (module == Self.dataAnalysisReviewBucket || module == "未分类") {
-            let storedModule = record.module?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return storedModule == nil
-                || storedModule?.isEmpty == true
-                || storedModule == "未分类"
-                || storedModule == Self.dataAnalysisReviewBucket
-                || storedModule.map { SubjectDefinition.legacyDataAnalysisModules.contains($0) } == true
-        }
         return record.module == module
     }
 }
@@ -319,14 +318,16 @@ struct LibraryRecordSnapshot: Identifiable {
     var id: String { record.compoundID }
 
     var usesSingleCardImagePreview: Bool {
-        Self.usesSingleCardImagePreview(
-            subject: SubjectModuleTitle.normalized(subject),
-            module: SubjectModuleTitle.normalized(module)
-        )
+        Self.usesSingleCardImagePreview(subject: SubjectModuleTitle.normalized(subject))
     }
 
-    static func usesSingleCardImagePreview(subject: String, module: String) -> Bool {
-        subject == "数量关系" || (subject == "资料分析" && module == "综合题")
+    static func usesSingleCardImagePreview(subject: String) -> Bool {
+        subject == "数量关系" || subject == SubjectDefinition.dataAnalysisSubject
+    }
+
+    var usesDataAnalysisMaterialLayout: Bool {
+        SubjectModuleTitle.normalized(subject) == SubjectDefinition.dataAnalysisSubject
+            && (!dataAnalysisMaterialText.isEmpty || !imageValues.isEmpty || SubjectModuleTitle.normalized(module) == "综合题")
     }
 
     init(

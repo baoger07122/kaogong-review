@@ -131,16 +131,15 @@ struct LibraryRecordDraft {
             : (LibraryReviewSource.explicitValue(in: original) ?? ((original["questionBankPaperID"] as? String)?.isEmpty == false ? .real : .pending))
         subject = (original["subject"] as? String)
             ?? ((kind == .errors && (original["isShenlun"] as? Bool) == true) ? "申论" : nil)
+            ?? record?.subject
             ?? scope.subject
             ?? (kind == .stickies ? "" : "言语理解")
-        let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
+        let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.libraryModules ?? []
         let storedModule = (original["module"] as? String) ?? scope.module
-        let hasOriginalModule = original["module"] as? String
-        if kind == .stickies {
+        if subject == SubjectDefinition.dataAnalysisSubject {
+            module = record.map { (original["module"] as? String) ?? $0.module ?? "" } ?? ""
+        } else if kind == .stickies {
             module = storedModule ?? ""
-        } else if record != nil, subject == "资料分析",
-           hasOriginalModule?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
-            module = hasOriginalModule ?? ""
         } else if subject == "数量关系" {
             let cleanedModule = storedModule?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             module = QuantityQuestionTypeCatalog.legacyModules.contains(cleanedModule) ? "" : cleanedModule
@@ -488,7 +487,7 @@ fileprivate struct LibraryRecordPayloadPreparationInput: @unchecked Sendable {
     let now: Date
     let existingCreatedAt: Date?
     let sourceExamIDToSave: String
-    let preservesUnassignedAnalysisModule: Bool
+    let preservesDataAnalysisModule: Bool
     let knowledgePointNames: [String]
 }
 
@@ -523,19 +522,16 @@ enum LibraryRecordRepository {
         let now = input.now
         let existingCreatedAt = input.existingCreatedAt
         let sourceExamIDToSave = input.sourceExamIDToSave
-        let preservesUnassignedAnalysisModule = input.preservesUnassignedAnalysisModule
         var object = draft.original
         let previousPencilKitData = object["pencilKitData"] as? String ?? ""
         object["id"] = id
         object["subject"] = draft.subject
-        if preservesUnassignedAnalysisModule {
-            if let originalModule = draft.original["module"] as? String {
-                object["module"] = originalModule
-            } else {
+        if !input.preservesDataAnalysisModule {
+            if draft.subject == SubjectDefinition.dataAnalysisSubject {
                 object.removeValue(forKey: "module")
+            } else {
+                object["module"] = draft.module
             }
-        } else {
-            object["module"] = draft.module
         }
         object["updatedAt"] = iso(now)
         if object["createdAt"] == nil, let existingCreatedAt {
@@ -830,10 +826,10 @@ enum LibraryRecordRepository {
         let previousLinkedErrors = (draft.original["linkedErrors"] as? [String]) ?? (draft.original["relatedErrorIds"] as? [String]) ?? []
         let previousLinkedNotes = draft.original["linkedNoteIds"] as? [String] ?? []
         let previousLinkedWords = draft.original["linkedWordIds"] as? [String] ?? []
-        let preservesUnassignedAnalysisModule = existing != nil
-            && draft.subject == "资料分析"
-            && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        let isDataAnalysis = draft.subject == SubjectDefinition.dataAnalysisSubject
+        let preservesDataAnalysisModule = isDataAnalysis && existing != nil
+            && (existing?.subject ?? draft.original["subject"] as? String) == draft.subject
+        let destinationModule = isDataAnalysis ? nil : draft.module
         let knowledgePointNames = canonicalKnowledgePointNames(for: draft, records: records)
         let existingCreatedAt: Date?
         if kind == .errors, let existing {
@@ -848,7 +844,7 @@ enum LibraryRecordRepository {
             now: now,
             existingCreatedAt: existingCreatedAt,
             sourceExamIDToSave: sourceExamIDToSave,
-            preservesUnassignedAnalysisModule: preservesUnassignedAnalysisModule,
+            preservesDataAnalysisModule: preservesDataAnalysisModule,
             knowledgePointNames: knowledgePointNames
         )
         let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
@@ -902,7 +898,7 @@ enum LibraryRecordRepository {
                     indexPayload: preparedPayload.indexPayload
                 )
                 existing.subject = draft.subject
-                existing.module = preservesUnassignedAnalysisModule ? draft.original["module"] as? String : draft.module
+                if !preservesDataAnalysisModule { existing.module = destinationModule }
                 existing.updatedAt = now
                 if kind == .words { savedWordRecord = existing }
             } else {
@@ -911,7 +907,7 @@ enum LibraryRecordRepository {
                     recordID: id,
                     payload: preparedPayload.payload,
                     subject: draft.subject,
-                    module: draft.module,
+                    module: destinationModule,
                     createdAt: now,
                     updatedAt: now,
                     precomputedIndexPayload: preparedPayload.indexPayload

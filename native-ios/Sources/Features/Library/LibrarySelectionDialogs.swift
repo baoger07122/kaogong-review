@@ -1142,7 +1142,12 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
     private var isQuantityScope: Bool { subject == "数量关系" }
     private var activeModule: String {
-        isQuantityScope ? (activeTypeID ?? currentModule) : currentModule
+        if isQuantityScope { return activeTypeID ?? currentModule }
+        if subject == SubjectDefinition.dataAnalysisSubject, let activeTypeID,
+           let catalogModule = types.first(where: { $0.id == activeTypeID })?.module {
+            return catalogModule
+        }
+        return currentModule
     }
     private var activeCatalogTypeID: String? { isQuantityScope ? nil : activeTypeID }
     private var isLegacyScope: Bool { !isQuantityScope && activeTypeID == nil }
@@ -1156,8 +1161,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             }
         }
         guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject) else { return [] }
-        return LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-            .filter { $0.isAvailable(in: currentModule) }
+        let entries = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+        return typeSubject == .dataAnalysis ? entries : entries.filter { $0.isAvailable(in: currentModule) }
     }
     private var activeTypeID: String? {
         guard !browsingTypeSelection.isEmpty, browsingTypeSelection != Self.legacyTypeSelection else { return nil }
@@ -1394,7 +1399,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         if isQuantityScope {
             return "题型 \(reference.module ?? currentModule) · \(tagKind.rawValue) \(reference.name)"
         }
-        if let sourceModule = reference.module, sourceModule != currentModule {
+        if subject != SubjectDefinition.dataAnalysisSubject,
+           let sourceModule = reference.module, sourceModule != currentModule {
             let origin: String
             if let typeID = reference.typeID {
                 let sourceTypes = LibraryErrorTypeSubject(rawValue: subject).map {
