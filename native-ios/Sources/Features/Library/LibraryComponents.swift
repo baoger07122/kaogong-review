@@ -421,6 +421,15 @@ private struct LibraryErrorRecordCard: View {
                 memoryCardContent
             } else {
                 regularCardContent
+                if let entryDate = snapshot.errorEntryDate {
+                    Text("录入 \(Self.entryDateFormatter.string(from: entryDate))")
+                        .font(.system(size: 11, weight: .regular))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
         }
         .padding(14)
@@ -448,6 +457,15 @@ private struct LibraryErrorRecordCard: View {
         }
         .shadow(color: Color.black.opacity(0.04), radius: 6, y: 3)
     }
+
+    private static let entryDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
 
     @ViewBuilder
     private var memoryCardContent: some View {
@@ -1448,6 +1466,9 @@ struct LibraryMasonryGrid: View {
         }
         if !metadataRows.isEmpty {
             sections.append(metadataRows.reduce(0, +) + CGFloat(metadataRows.count - 1) * 4)
+        }
+        if record.errorEntryDate != nil {
+            sections.append(14)
         }
 
         let contentHeight = sections.reduce(0, +) + CGFloat(max(0, sections.count - 1)) * 8

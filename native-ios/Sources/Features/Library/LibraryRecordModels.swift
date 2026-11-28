@@ -286,6 +286,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let isDifficult: Bool
     let needsReview: Bool
     let createdAt: Date?
+    let errorEntryDate: Date?
     let colorHex: String?
     let isPinned: Bool
     let searchableText: String
@@ -389,7 +390,9 @@ struct LibraryRecordSnapshot: Identifiable {
         needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
-        createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
+        let creationDate = record.createdAt ?? Self.date(in: object, keys: ["createdAt"])
+        errorEntryDate = record.collection == "errors" ? creationDate : nil
+        createdAt = creationDate ?? Self.date(in: object, keys: ["date", "updatedAt"])
         category = categoryValue
         sentiment = Self.firstText(in: object, keys: ["sentiment"]) ?? ""
         var entryKinds: [String] = []
@@ -685,10 +688,19 @@ struct LibraryRecordSnapshot: Identifiable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static let isoDateFormatter = ISO8601DateFormatter()
+    private static let fractionalISODateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     private static func date(in object: [String: Any], keys: [String]) -> Date? {
-        let iso = ISO8601DateFormatter()
         for key in keys {
-            if let value = object[key] as? String, let date = iso.date(from: value) { return date }
+            if let value = object[key] as? String,
+               let date = isoDateFormatter.date(from: value) ?? fractionalISODateFormatter.date(from: value) {
+                return date
+            }
             if let value = object[key] as? Double { return Date(timeIntervalSince1970: value > 10_000_000_000 ? value / 1000 : value) }
         }
         return nil

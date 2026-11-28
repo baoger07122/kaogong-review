@@ -486,7 +486,7 @@ fileprivate struct LibraryRecordPayloadPreparationInput: @unchecked Sendable {
     let kind: LibraryContentKind
     let id: String
     let now: Date
-    let existingCreatedAt: Date
+    let existingCreatedAt: Date?
     let sourceExamIDToSave: String
     let preservesUnassignedAnalysisModule: Bool
     let knowledgePointNames: [String]
@@ -538,7 +538,9 @@ enum LibraryRecordRepository {
             object["module"] = draft.module
         }
         object["updatedAt"] = iso(now)
-        object["createdAt"] = object["createdAt"] ?? iso(existingCreatedAt)
+        if object["createdAt"] == nil, let existingCreatedAt {
+            object["createdAt"] = iso(existingCreatedAt)
+        }
 
         switch kind {
         case .errors:
@@ -833,12 +835,18 @@ enum LibraryRecordRepository {
             && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         let knowledgePointNames = canonicalKnowledgePointNames(for: draft, records: records)
+        let existingCreatedAt: Date?
+        if kind == .errors, let existing {
+            existingCreatedAt = existing.createdAt
+        } else {
+            existingCreatedAt = existing?.createdAt ?? now
+        }
         let payloadInput = LibraryRecordPayloadPreparationInput(
             draft: draft,
             kind: kind,
             id: id,
             now: now,
-            existingCreatedAt: existing?.createdAt ?? now,
+            existingCreatedAt: existingCreatedAt,
             sourceExamIDToSave: sourceExamIDToSave,
             preservesUnassignedAnalysisModule: preservesUnassignedAnalysisModule,
             knowledgePointNames: knowledgePointNames

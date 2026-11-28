@@ -32,6 +32,9 @@ final class LibraryErrorEditAndNoteTests: XCTestCase {
         let prepared = try XCTUnwrap(cache.prepared(for: reloaded))
         XCTAssertEqual(prepared.key, LibraryDetailPayloadKey(record: reloaded))
         XCTAssertEqual(prepared.object["title"] as? String, "新题干")
+        XCTAssertNotNil(prepared.object["updatedAt"])
+        XCTAssertNil(prepared.object["createdAt"])
+        XCTAssertNil(LibraryRecordSnapshot(record: reloaded).errorEntryDate)
         let nextPayload = try JSONSerialization.data(withJSONObject: ["title": "其他窗口修改"])
         reloaded.replacePayload(nextPayload)
         XCTAssertNil(cache.prepared(for: reloaded))
@@ -42,6 +45,24 @@ final class LibraryErrorEditAndNoteTests: XCTestCase {
         } catch LibraryRecordSaveError.recordChanged(_) {
             XCTAssertEqual(record.jsonObject?["title"] as? String, "新题干")
         }
+    }
+
+    func testErrorCardReadsOriginalCreationDateFromTheRecordOrLegacyPayload() throws {
+        let payloadDate = Date(timeIntervalSince1970: 1_700_000_000.25)
+        let storedDate = payloadDate.addingTimeInterval(-60)
+        let updatedDate = payloadDate.addingTimeInterval(500)
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "createdAt": "2023-11-14T22:13:20.250Z",
+            "updatedAt": updatedDate.timeIntervalSince1970
+        ])
+        let record = StoredRecord(
+            collection: "errors", recordID: "entry-date", payload: payload,
+            createdAt: storedDate, updatedAt: updatedDate
+        )
+
+        XCTAssertEqual(LibraryRecordSnapshot(record: record).errorEntryDate, storedDate)
+        record.createdAt = nil
+        XCTAssertEqual(LibraryRecordSnapshot(record: record).errorEntryDate, payloadDate)
     }
 
     func testQuoteRemovesGrayFillAndPreservesColoredHighlight() {
