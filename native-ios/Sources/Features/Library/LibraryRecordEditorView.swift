@@ -170,7 +170,12 @@ struct LibraryRecordEditorView: View {
                   candidate.originalPayload == record.payload else { return nil }
             return candidate
         }
-        var initialDraft = currentPreparedDraft ?? LibraryRecordDraft(kind: kind, scope: scope, record: record)
+        let committedObject = kind == .errors ? record.flatMap {
+            LibraryErrorDetailWarmCache.committedEdit.prepared(for: $0)?.object
+        } : nil
+        var initialDraft = currentPreparedDraft ?? LibraryRecordDraft(
+            kind: kind, scope: scope, record: record, originalObject: committedObject
+        )
         if record == nil, kind == .errors, LibraryErrorTypeSubject(rawValue: initialDraft.subject) != nil {
             initialDraft.errorTypeID = preferredErrorTypeID
         }
@@ -770,10 +775,10 @@ struct LibraryRecordEditorView: View {
         return Menu {
             Button("不设置模块") { draft.module = "" }
             ForEach(modules, id: \.self) { module in
-                Button(module) { draft.module = module }
+                Button(SubjectDefinition.moduleTitle(module, subject: draft.subject)) { draft.module = module }
             }
         } label: {
-            compactProperty(title: "模块（可选）", value: draft.module.isEmpty ? "未设置" : draft.module, image: "square.stack.3d.up")
+            compactProperty(title: "模块（可选）", value: draft.module.isEmpty ? "未设置" : moduleDisplayTitle, image: "square.stack.3d.up")
         }
         .accessibilityIdentifier("library-note-module-picker")
     }
@@ -805,7 +810,7 @@ struct LibraryRecordEditorView: View {
         } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
             Menu {
                 ForEach(subject.modules, id: \.self) { module in
-                    Button(module) {
+                    Button(SubjectDefinition.moduleTitle(module, subject: subject.name)) {
                         if let subject = LibraryErrorTypeSubject(rawValue: draft.subject),
                            let errorType = LibraryErrorTypeRepository.types(for: subject, records: records)
                             .first(where: { $0.id == draft.errorTypeID }),
@@ -817,9 +822,13 @@ struct LibraryRecordEditorView: View {
                     }
                 }
             } label: {
-                compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
+                compactProperty(title: "模块", value: moduleDisplayTitle, image: "square.stack.3d.up")
             }
         }
+    }
+
+    private var moduleDisplayTitle: String {
+        SubjectDefinition.moduleTitle(draft.module, subject: draft.subject)
     }
 
     private func prefillGraphOptionsIfNeeded() {
@@ -995,7 +1004,9 @@ struct LibraryRecordEditorView: View {
         )
     }
 
-    private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
+    private var isLogicJudgment: Bool {
+        draft.subject == "判断推理" && draft.module == SubjectDefinition.argumentReasoningModule
+    }
     private var isAnalogyReasoning: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isQuantityRelations: Bool { draft.subject == "数量关系" }

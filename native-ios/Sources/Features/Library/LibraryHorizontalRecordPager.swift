@@ -234,7 +234,7 @@ struct LibraryRecordSwipePreview: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.grid.2x2")
-                    Text(record.module?.isEmpty == false ? record.module ?? "" : record.subject ?? "")
+                    Text(record.module?.isEmpty == false ? record.moduleDisplayTitle ?? "" : record.subject ?? "")
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)

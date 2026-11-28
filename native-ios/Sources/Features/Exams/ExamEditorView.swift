@@ -644,7 +644,7 @@ private struct ExamLinkedErrorsSection: View {
                                     .foregroundStyle(draft.linkedErrorIDs.contains(error.id) ? AppTheme.accent : .secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(error.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(1)
-                                    Text([error.subject, error.module].compactMap { $0 }.joined(separator: " · "))
+                                    Text([error.subject, error.moduleDisplayTitle].compactMap { $0 }.joined(separator: " · "))
                                         .font(AppTheme.auxiliaryFont)
                                         .foregroundStyle(.secondary)
                                 }

@@ -79,8 +79,10 @@ struct StickyTagManagerView: View {
             } label: { selector(title: "科目", value: subject.name) }
             if !subject.isFlat {
                 Menu {
-                    ForEach(subject.modules, id: \.self) { value in Button(value) { module = value } }
-                } label: { selector(title: "模块", value: module) }
+                    ForEach(subject.modules, id: \.self) { value in
+                        Button(SubjectDefinition.moduleTitle(value, subject: subject.name)) { module = value }
+                    }
+                } label: { selector(title: "模块", value: SubjectDefinition.moduleTitle(module, subject: subject.name)) }
             }
         }
     }

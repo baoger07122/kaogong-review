@@ -149,12 +149,14 @@ final class LibraryInlineNoteSession: ObservableObject {
     private func revealWritableAreaNow(in textView: UITextView, sessionID: UUID) {
         guard focusRevealSessionID == sessionID,
               textView.isFirstResponder,
+              textView.markedTextRange == nil,
               let window = textView.window,
               let anchor = noteAnchorView,
               anchor.window === window else { return }
 
-        window.keyboardLayoutGuide.followsUndockedKeyboard = true
-        window.layoutIfNeeded()
+        if !window.keyboardLayoutGuide.followsUndockedKeyboard {
+            window.keyboardLayoutGuide.followsUndockedKeyboard = true
+        }
         var ancestor = textView.superview
         var outerScrollView: UIScrollView?
         while let view = ancestor {
@@ -164,8 +166,7 @@ final class LibraryInlineNoteSession: ObservableObject {
             }
             ancestor = view.superview
         }
-        guard let scrollView = outerScrollView else { return }
-        scrollView.layoutIfNeeded()
+        guard let scrollView = outerScrollView, !scrollView.isDragging, !scrollView.isDecelerating else { return }
 
         let viewport = scrollView.convert(scrollView.bounds, to: window)
         var visibleBottom = viewport.maxY - scrollView.adjustedContentInset.bottom

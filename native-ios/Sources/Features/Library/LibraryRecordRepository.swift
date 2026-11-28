@@ -38,6 +38,7 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable, Sendable {
 struct LibraryRecordDraft {
     var original: [String: Any] = [:]
     var originalPayload: Data?
+    private(set) var hasDecodedOriginal = false
     var id = ""
     var subject = "言语理解"
     var module = "逻辑填空"
@@ -120,7 +121,9 @@ struct LibraryRecordDraft {
         originalObject: [String: Any]? = nil,
         knownKnowledgePointNames: Set<String> = []
     ) {
-        original = originalObject ?? record?.jsonObject ?? [:]
+        let decodedOriginal = originalObject ?? record?.jsonObject
+        original = decodedOriginal ?? [:]
+        hasDecodedOriginal = decodedOriginal != nil
         originalPayload = record?.payload
         id = record?.recordID ?? ""
         reviewSource = record == nil
@@ -802,15 +805,17 @@ enum LibraryRecordRepository {
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
         let expectedExistingPayload = existing?.payload
         let expectedExistingUpdatedAt = existing?.updatedAt
+        let validationStart = ProcessInfo.processInfo.systemUptime
         if let existing {
-            guard let _ = existing.jsonObject else {
-                throw LibraryRecordSaveError.invalidExistingPayload(existing.recordID)
-            }
             guard let originalPayload = draft.originalPayload,
-                  originalPayload == existing.payload else {
+                  originalPayload == expectedExistingPayload else {
                 throw LibraryRecordSaveError.recordChanged(existing.recordID)
             }
+            guard draft.hasDecodedOriginal else {
+                throw LibraryRecordSaveError.invalidExistingPayload(existing.recordID)
+            }
         }
+        LibraryPerformanceLog.markIfSlow("record.save.validate-original", since: validationStart)
         var sourceExamIDToSave = draft.sourceExamID
         if kind == .errors, !sourceExamIDToSave.isEmpty {
             let exam = records.first { $0.collection == "exams" && $0.recordID == sourceExamIDToSave }
@@ -851,8 +856,7 @@ enum LibraryRecordRepository {
         try context.transaction {
             if let existing {
                 guard existing.payload == expectedExistingPayload,
-                      existing.updatedAt == expectedExistingUpdatedAt,
-                      existing.payload == draft.originalPayload else {
+                      existing.updatedAt == expectedExistingUpdatedAt else {
                     throw LibraryRecordSaveError.recordChanged(existing.recordID)
                 }
             }
@@ -928,9 +932,11 @@ enum LibraryRecordRepository {
             }
         }
         LibraryPerformanceLog.mark("record.save.transaction", since: transactionStart)
-        let contextSaveStart = ProcessInfo.processInfo.systemUptime
-        try context.save()
-        LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
+        if kind == .errors, let existing {
+            let handoffStart = ProcessInfo.processInfo.systemUptime
+            LibraryErrorDetailWarmCache.committedEdit.rememberCommittedEdit(existing, decoded: preparedPayload.decoded)
+            LibraryPerformanceLog.mark("record.save.detail-handoff", since: handoffStart)
+        }
         LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
         return id
     }

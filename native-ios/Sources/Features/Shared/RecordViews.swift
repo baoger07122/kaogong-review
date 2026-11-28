@@ -11,7 +11,7 @@ struct RecordRow: View {
             HStack(spacing: 8) {
                 Text(record.collection)
                 if let subject = record.subject, !subject.isEmpty { Text(subject) }
-                if let module = record.module, !module.isEmpty { Text(module) }
+                if let module = record.moduleDisplayTitle, !module.isEmpty { Text(module) }
             }
             .font(.caption)
             .foregroundStyle(.secondary)

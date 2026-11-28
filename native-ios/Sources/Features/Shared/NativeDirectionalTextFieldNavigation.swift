@@ -5,12 +5,14 @@ import ObjectiveC
 /// Adds boundary-aware arrow-key navigation to the focused native text input.
 /// Normal cursor movement, text selection, and IME marked text remain owned by UIKit.
 struct NativeDirectionalTextFieldNavigation: ViewModifier {
+    var isEnabled = true
+
     func body(content: Content) -> some View {
         content.onKeyPress(
             keys: [.leftArrow, .rightArrow, .upArrow, .downArrow],
             phases: [.down]
         ) { press in
-            NativeDirectionalTextInputRouter.handle(press)
+            isEnabled ? NativeDirectionalTextInputRouter.handle(press) : .ignored
         }
     }
 }

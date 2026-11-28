@@ -509,7 +509,9 @@ private struct LibraryErrorAnalysisSection: View {
 
     private var isQuantity: Bool { draft.subject == "数量关系" }
     private var isAnalogy: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
-    private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
+    private var isLogicJudgment: Bool {
+        draft.subject == "判断推理" && draft.module == SubjectDefinition.argumentReasoningModule
+    }
     private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
     private var tagDisplaySettings: LibraryTagDisplaySettings {

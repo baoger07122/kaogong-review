@@ -95,7 +95,7 @@ struct LibrarySidebar: View {
                         Group {
                             if compact {
                                 VStack(spacing: 2) {
-                                    Text(module)
+                                    Text(SubjectDefinition.moduleTitle(module, subject: subject.name))
                                         .font(.system(size: 11, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.72)
@@ -107,7 +107,7 @@ struct LibrarySidebar: View {
                                 .frame(maxWidth: .infinity)
                             } else {
                                 HStack(spacing: 8) {
-                                    Text(module)
+                                    Text(SubjectDefinition.moduleTitle(module, subject: subject.name))
                                         .font(.system(size: 12, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
                                         .lineLimit(1)
                                     Spacer(minLength: 4)
@@ -276,7 +276,7 @@ struct LibraryRecordCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if kind == .errors {
                 HStack(spacing: 5) {
-                    Label((snapshot.record.module?.isEmpty == false ? snapshot.record.module : snapshot.record.subject) ?? "未分类", systemImage: "square.grid.2x2")
+                    Label((snapshot.record.module?.isEmpty == false ? snapshot.record.moduleDisplayTitle : snapshot.record.subject) ?? "未分类", systemImage: "square.grid.2x2")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

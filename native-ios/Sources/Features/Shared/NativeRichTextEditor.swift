@@ -15,6 +15,26 @@ private enum RichTextMetrics {
 private enum NativeRichTextNoteFormatting {
     static let quoteKey = NSAttributedString.Key("com.kaogong.note.quote")
     static let listKey = NSAttributedString.Key("com.kaogong.note.list-item")
+    static let quoteIndent: CGFloat = 14
+
+    static func isNeutralBackground(_ value: Any?) -> Bool {
+        guard let color = value as? UIColor else { return false }
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        if color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) {
+            return max(red, green, blue) - min(red, green, blue) <= 0.06
+        }
+        var white: CGFloat = 0
+        return color.getWhite(&white, alpha: &alpha)
+    }
+
+    static func removeNeutralQuoteBackground(in text: NSMutableAttributedString, range: NSRange) {
+        text.enumerateAttribute(.backgroundColor, in: range) { value, run, _ in
+            if isNeutralBackground(value) { text.removeAttribute(.backgroundColor, range: run) }
+        }
+    }
 
     static func isQuoted(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
         attributes[quoteKey] as? Bool == true
@@ -256,22 +276,31 @@ private struct RichTextTableEditorRequest: Identifiable {
 }
 
 private final class NoteQuoteLayoutFragment: NSTextLayoutFragment {
+    private var ruleFrame: CGRect {
+        guard let first = textLineFragments.first else { return .null }
+        let lines = textLineFragments.reduce(CGRect.null) { $0.union($1.typographicBounds) }
+        guard !lines.isNull, !lines.isEmpty else { return .null }
+        return CGRect(
+            x: max(0, first.glyphOrigin.x - 11),
+            y: lines.minY,
+            width: 3,
+            height: max(4, lines.height)
+        )
+    }
+
+    override var renderingSurfaceBounds: CGRect {
+        super.renderingSurfaceBounds.union(ruleFrame)
+    }
+
     override func draw(at point: CGPoint, in context: CGContext) {
         super.draw(at: point, in: context)
-        guard let paragraph = textElement as? NSTextParagraph,
-              NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0),
-              let first = textLineFragments.first,
-              let last = textLineFragments.last else { return }
-        let lineRects = textLineFragments.map(\.typographicBounds).filter { !$0.isNull && !$0.isEmpty }
-        guard let top = lineRects.map(\.minY).min(), let bottom = lineRects.map(\.maxY).max() else { return }
-        let x = point.x + first.glyphOrigin.x - 10
-        let rect = CGRect(x: x, y: point.y + top - 2, width: 2, height: max(4, bottom - top + 4))
+        let rect = ruleFrame.offsetBy(dx: point.x, dy: point.y)
+        guard !rect.isNull else { return }
         context.saveGState()
-        context.setFillColor(UIColor.systemGray4.cgColor)
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 1, cornerHeight: 1, transform: nil))
+        context.setFillColor(UIColor.systemGray.cgColor)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil))
         context.fillPath()
         context.restoreGState()
-        _ = last
     }
 }
 
@@ -451,7 +480,9 @@ struct NativeRichTextEditor: View {
                 editorSessionID: activeEditorSessionID,
                 usesLazyHTMLInitialization: editorSession != nil
             )
-                .modifier(NativeDirectionalTextFieldNavigation())
+                .modifier(NativeDirectionalTextFieldNavigation(
+                    isEnabled: !(noteFormatting && tableAppearance == .libraryContent)
+                ))
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
         }
@@ -1784,6 +1815,7 @@ private final class RichTextPasteTextView: UITextView {
     var copyStructuredSelection: ((UITextView) -> Bool)?
     var onLayout: ((UITextView) -> Void)?
     var onBoundsChange: ((UITextView) -> Void)?
+    var focusOnceAttached: (() -> Void)?
     private var lastReportedBoundsSize: CGSize?
 
     init(pasteEnabledUsingTextLayoutManager: Bool) {
@@ -1824,23 +1856,72 @@ private final class RichTextPasteTextView: UITextView {
             onBoundsChange?(self)
         }
     }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, let focus = self.focusOnceAttached else { return }
+            self.focusOnceAttached = nil
+            focus()
+        }
+    }
+}
+
+@MainActor
+private final class RichTextEditorHostView: UIView {
+    let textView: RichTextPasteTextView
+
+    init(textView: RichTextPasteTextView) {
+        self.textView = textView
+        super.init(frame: .zero)
+        addSubview(textView)
+    }
+
+    required init?(coder: NSCoder) {
+        textView = RichTextPasteTextView(pasteEnabledUsingTextLayoutManager: true)
+        super.init(coder: coder)
+        addSubview(textView)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if textView.frame != bounds { textView.frame = bounds }
+    }
 }
 
 @MainActor
 private final class RichTextInlineBlockField: UITextView {
     var switchField: ((Int) -> Void)?
+    var moveVertically: ((Int) -> Void)?
     var reportedError: String?
 
     override var keyCommands: [UIKeyCommand]? {
+        guard markedTextRange == nil else { return super.keyCommands }
         let next = UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(changeField(_:)))
         let previous = UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(changeField(_:)))
-        next.wantsPriorityOverSystemBehavior = true
-        previous.wantsPriorityOverSystemBehavior = true
-        return [next, previous] + (super.keyCommands ?? [])
+        var commands = [next, previous]
+        if moveVertically != nil {
+            commands.append(UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(changeRow(_:))))
+            commands.append(UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(changeRow(_:))))
+        }
+        commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return commands + (super.keyCommands ?? [])
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(changeRow(_:)) || action == #selector(changeField(_:)) {
+            return markedTextRange == nil
+        }
+        return super.canPerformAction(action, withSender: sender)
     }
 
     @objc private func changeField(_ command: UIKeyCommand) {
         switchField?(command.modifierFlags.contains(.shift) ? -1 : 1)
+    }
+
+    @objc private func changeRow(_ command: UIKeyCommand) {
+        moveVertically?(command.input == UIKeyCommand.inputUpArrow ? -1 : 1)
     }
 }
 
@@ -1882,7 +1963,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    func makeUIView(context: Context) -> UITextView {
+    func makeUIView(context: Context) -> UIView {
         let view = RichTextPasteTextView(pasteEnabledUsingTextLayoutManager: true)
         view.onPaste = { [weak coordinator = context.coordinator] textView in
             coordinator?.handlePaste(textView) ?? false
@@ -1927,6 +2008,13 @@ private struct RichTextTextView: UIViewRepresentable {
         tableTap.delaysTouchesEnded = false
         tableTap.delegate = context.coordinator
         view.addGestureRecognizer(tableTap)
+        if usesInlineBlockEditing {
+            let caretTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleNoteCaretTap(_:)))
+            caretTap.cancelsTouchesInView = false
+            caretTap.delegate = context.coordinator
+            context.coordinator.noteCaretTap = caretTap
+            view.addGestureRecognizer(caretTap)
+        }
         if let preparedInitialAttributedText, preparedInitialHTML == html {
             view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
                 to: preparedInitialAttributedText,
@@ -1964,30 +2052,32 @@ private struct RichTextTextView: UIViewRepresentable {
             let caret = NSRange(location: offset, length: 0)
             view.selectedRange = caret
             context.coordinator.rememberSelection(caret)
-            let focusEditor = {
-                guard view.window != nil else { return false }
+            view.focusOnceAttached = { [weak coordinator = context.coordinator, weak view] in
+                guard let coordinator, let view else { return }
+                view.superview?.layoutIfNeeded()
                 if let cell = initialBlockCell,
-                   context.coordinator.focusInitialBlockCell(cell, offset: offset, in: view) { return true }
-                guard view.becomeFirstResponder() else { return false }
+                   coordinator.focusInitialBlockCell(cell, offset: offset, in: view) { return }
+                guard view.becomeFirstResponder() else { return }
+                view.selectedRange = caret
+                coordinator.rememberSelection(caret)
                 view.scrollRangeToVisible(caret)
-                view.window?.layoutIfNeeded()
                 onFocusReady?(view)
-                return true
-            }
-            DispatchQueue.main.async {
-                if !focusEditor() {
-                    DispatchQueue.main.async { _ = focusEditor() }
-                }
             }
         }
+        if usesInlineBlockEditing { return RichTextEditorHostView(textView: view) }
         return view
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        guard growsWithContent, let width = proposal.width, width > 0 else { return nil }
+    private func textView(in view: UIView) -> RichTextPasteTextView? {
+        (view as? RichTextEditorHostView)?.textView ?? (view as? RichTextPasteTextView)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
+        guard growsWithContent, let width = proposal.width, width > 0,
+              let view = textView(in: uiView) else { return nil }
         let measurementStart = ProcessInfo.processInfo.systemUptime
         let height = context.coordinator.contentHeight(
-            for: uiView,
+            for: view,
             width: width,
             minimum: max(42, minimumContentHeight)
         )
@@ -1997,7 +2087,8 @@ private struct RichTextTextView: UIViewRepresentable {
         return CGSize(width: width, height: height)
     }
 
-    func updateUIView(_ view: UITextView, context: Context) {
+    func updateUIView(_ host: UIView, context: Context) {
+        guard let view = textView(in: host) else { return }
         context.coordinator.parent = self
         view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         context.coordinator.updateKeyboardAccessory(
@@ -2014,7 +2105,7 @@ private struct RichTextTextView: UIViewRepresentable {
         )
         let replacingDocumentContent = usesLazyHTMLInitialization
             ? managedDocumentChanged
-            : context.coordinator.lastHTML != html && !view.isFirstResponder
+            : context.coordinator.lastHTML != html && !view.isFirstResponder && !context.coordinator.isEditingInlineBlock
         if usesStabilizedInlineNoteMeasurement, editorSession != nil,
            managedDocumentChanged || context.coordinator.lastHTML != html {
             LibraryPerformanceLog.event(
@@ -2065,6 +2156,8 @@ private struct RichTextTextView: UIViewRepresentable {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
+        weak var noteCaretTap: UITapGestureRecognizer?
+        var isEditingInlineBlock: Bool { inlineBlockEdit != nil }
         weak var connectedSession: NativeRichTextEditorSession?
         private var pendingEndEditingCompletion: ((String?) -> Void)?
         private var lastEditingSelection = NSRange(location: 0, length: 0)
@@ -2417,23 +2510,28 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             if textView is RichTextInlineBlockField {
-                guard let edit = inlineBlockEdit, edit.field === textView, let body = textView.superview as? UITextView else { return }
-                _ = closeInlineBlockField(in: body)
+                guard let edit = inlineBlockEdit, edit.field === textView,
+                      let host = textView.superview as? RichTextEditorHostView else { return }
+                _ = closeInlineBlockField(in: host.textView)
                 return
             }
+            // The document still owns the keyboard while a cell is taking focus.
+            guard inlineBlockEdit == nil else { return }
             let latestHTML = publishNow(textView)
             let completion = pendingEndEditingCompletion
             pendingEndEditingCompletion = nil
             connectedSession?.setComposingText(false)
-            DispatchQueue.main.async {
-                self.parent.isEditing = false
+            DispatchQueue.main.async { [weak textView] in
+                if self.inlineBlockEdit == nil, textView?.isFirstResponder != true { self.parent.isEditing = false }
                 completion?(latestHTML)
             }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             if textView is RichTextInlineBlockField {
-                parent.onCaretChange?(textView)
+                let isComposing = textView.markedTextRange != nil
+                connectedSession?.setComposingText(isComposing)
+                if !isComposing { parent.onCaretChange?(textView) }
                 return
             }
             guard inlineBlockEdit == nil else { return }
@@ -3309,8 +3407,29 @@ private struct RichTextTextView: UIViewRepresentable {
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard parent.usesInlineBlockEditing, let body = gestureRecognizer.view as? UITextView else { return true }
             let point = gestureRecognizer.location(in: body)
-            if inlineBlockEdit?.field.frame.contains(point) == true { return false }
-            return NativeTableAttachment.hitTest(point, in: body) != nil
+            let hitsBlock = NativeTableAttachment.hitTest(point, in: body) != nil
+            return gestureRecognizer === noteCaretTap ? !hitsBlock : hitsBlock
+        }
+
+        @objc func handleNoteCaretTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended, let view = recognizer.view as? UITextView,
+                  connectedSession?.isInputLocked != true, view.markedTextRange == nil else { return }
+            let point = recognizer.location(in: view)
+            let editRevision = userEditRevision
+            let sessionID = parent.editorSessionID
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let view, view.window != nil,
+                      self.parent.editorSessionID == sessionID, self.userEditRevision == editRevision,
+                      self.connectedSession?.isInputLocked != true, view.markedTextRange == nil,
+                      view.selectedRange.length == 0,
+                      self.closeInlineBlockField(in: view),
+                      view.becomeFirstResponder(),
+                      let position = view.closestPosition(to: point),
+                      let range = view.textRange(from: position, to: position) else { return }
+                view.selectedTextRange = range
+                self.rememberSelection(view.selectedRange)
+                self.parent.onCaretChange?(view)
+            }
         }
 
         @objc func handleNativeTableTap(_ recognizer: UITapGestureRecognizer) {
@@ -3351,11 +3470,19 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func positionInlineBlockField(in body: UITextView) {
             guard let edit = inlineBlockEdit,
+                  let host = edit.field.superview,
                   let attachment = inlineAttachment(at: edit.target, in: body),
                   let blockFrame = attachment.frame(in: body, at: edit.target.range.location),
                   let fieldFrame = attachment.frame(for: edit.cell) else { return }
-            let frame = fieldFrame.offsetBy(dx: blockFrame.minX, dy: blockFrame.minY)
+            let bodyFrame = fieldFrame.offsetBy(dx: blockFrame.minX, dy: blockFrame.minY)
+            let frame = body.convert(bodyFrame, to: host)
             if edit.field.frame != frame { edit.field.frame = frame }
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if let body = scrollView as? RichTextPasteTextView {
+                positionInlineBlockField(in: body)
+            }
         }
 
         private func editInlineBlock(
@@ -3364,7 +3491,8 @@ private struct RichTextTextView: UIViewRepresentable {
             in body: UITextView,
             caretNear point: CGPoint? = nil
         ) {
-            guard connectedSession?.isInputLocked != true else { return }
+            guard connectedSession?.isInputLocked != true,
+                  let host = body.superview as? RichTextEditorHostView else { return }
             if let existing = inlineBlockEdit, existing.target.attachmentInstanceID == target.attachmentInstanceID,
                existing.cell == cell {
                 existing.field.becomeFirstResponder()
@@ -3405,26 +3533,35 @@ private struct RichTextTextView: UIViewRepresentable {
                 guard let self, let body else { return }
                 self.switchInlineBlockField(direction: direction, in: body)
             }
+            if !isFlowchart {
+                field.moveVertically = { [weak self, weak body] offset in
+                    guard let self, let body else { return }
+                    self.moveInlineBlockRow(by: offset, in: body)
+                }
+            }
 
             inlineBlockEdit = InlineBlockEdit(target: target, cell: cell, field: field)
-            body.addSubview(field)
+            host.addSubview(field)
             positionInlineBlockField(in: body)
             field.delegate = self
-            if let point,
-               let position = field.closestPosition(to: field.convert(point, from: body)),
-               let range = field.textRange(from: position, to: position) {
-                field.selectedTextRange = range
-            }
             guard field.becomeFirstResponder() else {
                 removeInlineBlockField()
                 return
             }
-            if point == nil {
+            if let point,
+               let position = field.closestPosition(to: field.convert(point, from: body)),
+               let range = field.textRange(from: position, to: position) {
+                field.selectedTextRange = range
+            } else {
                 let end = NSRange(location: field.textStorage.length, length: 0)
                 field.selectedRange = end
                 field.scrollRangeToVisible(end)
             }
-            if body.isScrollEnabled { body.scrollRectToVisible(field.frame, animated: false) }
+            if body.isScrollEnabled { body.scrollRectToVisible(body.convert(field.frame, from: host), animated: false) }
+            DispatchQueue.main.async { [weak self, weak field] in
+                guard let self, let field, field.isFirstResponder else { return }
+                self.parent.isEditing = true
+            }
             parent.onCaretChange?(field)
         }
 
@@ -3475,14 +3612,20 @@ private struct RichTextTextView: UIViewRepresentable {
             let symbol = offset < 0 ? "chevron.up" : "chevron.down"
             let destination = RichTextTable.Cell(row: cell.row + offset, column: cell.column)
             let action = UIAction(title: caption, image: UIImage(systemName: symbol)) { [weak self, weak body] _ in
-                guard let self, let body, let edit = self.inlineBlockEdit, edit.cell == cell else { return }
-                // Navigation passes no touch position, so the editor places the caret after the text.
-                self.editInlineBlock(at: edit.target, cell: destination, in: body)
+                guard let self, let body, self.inlineBlockEdit?.cell == cell else { return }
+                self.moveInlineBlockRow(by: offset, in: body)
             }
             let button = UIBarButtonItem(title: nil, image: action.image, primaryAction: action, menu: nil)
             button.accessibilityLabel = caption
             button.isEnabled = table.contains(destination)
             return button
+        }
+
+        private func moveInlineBlockRow(by offset: Int, in body: UITextView) {
+            guard let edit = inlineBlockEdit, let attachment = inlineAttachment(at: edit.target, in: body) else { return }
+            let destination = RichTextTable.Cell(row: edit.cell.row + offset, column: edit.cell.column)
+            guard attachment.table.contains(destination) else { return }
+            editInlineBlock(at: edit.target, cell: destination, in: body)
         }
 
         private func switchInlineBlockField(direction: Int, in body: UITextView) {
@@ -3782,15 +3925,20 @@ private struct RichTextTextView: UIViewRepresentable {
                 : view.typingAttributes
             let isQuoted = NativeRichTextNoteFormatting.isQuoted(attributes)
             let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            style.headIndent = isQuoted ? 0 : 12
-            style.firstLineHeadIndent = isQuoted ? 0 : 12
+            style.headIndent = isQuoted ? 0 : NativeRichTextNoteFormatting.quoteIndent
+            style.firstLineHeadIndent = style.headIndent
             style.paragraphSpacingBefore = 0
             style.paragraphSpacing = isQuoted ? 0 : 5
             if paragraphRange.length == 0 {
                 var typing = view.typingAttributes
                 typing[.paragraphStyle] = style
                 if isQuoted { typing.removeValue(forKey: NativeRichTextNoteFormatting.quoteKey) }
-                else { typing[NativeRichTextNoteFormatting.quoteKey] = true }
+                else {
+                    typing[NativeRichTextNoteFormatting.quoteKey] = true
+                    if NativeRichTextNoteFormatting.isNeutralBackground(typing[.backgroundColor]) {
+                        typing.removeValue(forKey: .backgroundColor)
+                    }
+                }
                 view.typingAttributes = typing
             } else {
                 view.textStorage.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
@@ -3798,6 +3946,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     view.textStorage.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
                 } else {
                     view.textStorage.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+                    NativeRichTextNoteFormatting.removeNeutralQuoteBackground(in: view.textStorage, range: paragraphRange)
                 }
             }
             if isQuoted {
@@ -4066,10 +4215,10 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func tableAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeTableAttachment, range: NSRange)? {
-            guard view.attributedText.length > 0 else { return nil }
-            for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
+            let storage = view.textStorage
+            for location in [range.location, range.location - 1] where location >= 0 && location < storage.length {
                 var effective = NSRange()
-                if let attachment = view.attributedText.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeTableAttachment {
+                if let attachment = storage.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeTableAttachment {
                     return (attachment, effective)
                 }
             }
@@ -4077,10 +4226,10 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func formulaAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeFormulaAttachment, range: NSRange)? {
-            guard view.attributedText.length > 0 else { return nil }
-            for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
+            let storage = view.textStorage
+            for location in [range.location, range.location - 1] where location >= 0 && location < storage.length {
                 var effective = NSRange()
-                if let attachment = view.attributedText.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeFormulaAttachment {
+                if let attachment = storage.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeFormulaAttachment {
                     return (attachment, effective)
                 }
             }
@@ -4382,8 +4531,8 @@ private struct RichTextTextView: UIViewRepresentable {
             paragraphRange = (result.string as NSString).paragraphRange(for: NSRange(location: paragraphRange.location, length: 0))
             guard result.length > 0, paragraphRange.length > 0 else { continue }
             let style = (result.attribute(.paragraphStyle, at: min(paragraphRange.location, max(0, result.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            style.headIndent = 12
-            style.firstLineHeadIndent = 12
+            style.headIndent = NativeRichTextNoteFormatting.quoteIndent
+            style.firstLineHeadIndent = style.headIndent
             result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
             result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
         }
@@ -4493,13 +4642,13 @@ private struct RichTextTextView: UIViewRepresentable {
                 style.firstLineHeadIndent = CGFloat(indent.firstLineHeadIndent)
                 style.headIndent = CGFloat(indent.headIndent)
                 style.tailIndent = CGFloat(indent.tailIndent)
-            } else if metadataRows[index]?.versionedLayout == nil, quoted {
-                style.headIndent = 12
-                style.firstLineHeadIndent = 12
             }
             if quoted {
+                style.headIndent = max(style.headIndent, NativeRichTextNoteFormatting.quoteIndent)
+                style.firstLineHeadIndent = max(style.firstLineHeadIndent, NativeRichTextNoteFormatting.quoteIndent)
                 style.paragraphSpacing = max(style.paragraphSpacing, 5)
                 result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+                NativeRichTextNoteFormatting.removeNeutralQuoteBackground(in: result, range: paragraphRange)
             } else {
                 result.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
             }

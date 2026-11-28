@@ -68,6 +68,9 @@ targets:
       - Tests/Animation
       - Tests/Shenlun
       - Tests/Exams
+      - Tests/Library/LibraryDoodleExitSessionTests.swift
+      - Tests/Library/LibraryErrorEditAndNoteTests.swift
+      - Tests/Library/JudgmentReasoningModuleTests.swift
       - Sources/Features/Speed/SpeedAnimatedText.swift
     dependencies:
       - target: KaogongReviewNative

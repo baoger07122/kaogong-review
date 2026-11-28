@@ -557,7 +557,8 @@ struct KnowledgePointManagerView: View {
     }
 
     private func moduleDisplayName(_ module: String) -> String {
-        module == TagLibraryRepository.sharedQuantityCauseModule ? "通用" : module
+        module == TagLibraryRepository.sharedQuantityCauseModule
+            ? "通用" : SubjectDefinition.moduleTitle(module, subject: subject.name)
     }
 
     private var verbalTypeSelector: some View {
@@ -604,7 +605,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveEditor
         ) {
             TextField("名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(module)\(isTypedCatalogTag ? " → \(selectedVerbalTypeName)" : "")")
+            Text("保存范围：\(subject.name) → \(moduleDisplayName(module))\(isTypedCatalogTag ? " → \(selectedVerbalTypeName)" : "")")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }
@@ -619,7 +620,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveGroup
         ) {
             TextField("分组名称", text: $groupNameDraft).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(module)\(selectedTypeID.map { _ in " → \(selectedVerbalTypeName)" } ?? "")")
+            Text("保存范围：\(subject.name) → \(moduleDisplayName(module))\(selectedTypeID.map { _ in " → \(selectedVerbalTypeName)" } ?? "")")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             if !LibraryKnowledgePointGroupPolicy.canUseGroupName(
                 groupNameDraft, groups: groups, excluding: editingGroupID

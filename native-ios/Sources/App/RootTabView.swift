@@ -120,7 +120,6 @@ struct RootTabView: View {
     private func selectTab(_ tab: RootTab) {
         guard RootTab.availableTabs.contains(tab) else { return }
         guard selection != tab else { return }
-        guard !libraryDoodleSession.isFinishingHiddenDrawing else { return }
         if libraryDoodleSession.isPresented {
             libraryDoodleSession.dismiss(reopenOnSaveFailure: false) { error in
                 if let error { NativePerformanceLog.event("doodle tab exit: \(error)") }
@@ -177,14 +176,32 @@ struct RootTabView: View {
 
 private struct LibraryDoodleRootOverlay: View {
     @ObservedObject var session: LibraryDoodleSession
+    @State private var confirmsDiscard = false
 
     var body: some View {
         Group {
-            if session.showsDrawingOverlay {
+            if session.isPresented {
                 // The PencilKit surface stays hosted by the detail page so strokes
                 // share its coordinate space; this child owns the overlay updates.
                 LibraryDoodleOverlay(session: session)
+            } else if session.canRetryCloseSave, let error = session.saveError {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error)
+                        .font(.subheadline)
+                    HStack {
+                        Button("重试保存", action: session.retryCloseSave)
+                        Button("放弃草稿", role: .destructive) { confirmsDiscard = true }
+                    }
+                }
+                .padding(12)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
+        }
+        .alert("放弃未保存的涂鸦？", isPresented: $confirmsDiscard) {
+            Button("放弃草稿", role: .destructive, action: session.discardFailedCloseSave)
+            Button("取消", role: .cancel) {}
         }
     }
 }

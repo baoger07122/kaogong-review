@@ -143,7 +143,9 @@ enum LibraryDoodlePersistence {
         record.replacePayload(write.payload, indexPayload: write.indexPayload)
         record.updatedAt = updatedAt
         do {
+            let saveStart = ProcessInfo.processInfo.systemUptime
             try context.save()
+            LibraryPerformanceLog.mark("doodle.record-save", since: saveStart)
         } catch {
             record.replacePayload(write.basePayload, indexPayload: previousIndex)
             record.updatedAt = previousVersion

@@ -298,7 +298,7 @@ struct ReviewView: View {
                             ForEach(overview.moduleStats) { stat in
                                 Button { start(subject: stat.subject, module: stat.module) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(stat.module.isEmpty ? stat.subject : stat.module)
+                                        Text(stat.module.isEmpty ? stat.subject : SubjectDefinition.moduleTitle(stat.module, subject: stat.subject))
                                             .font(AppTheme.inputFont.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                                         Text("\(stat.subject) · 共 \(stat.total) 题")
                                             .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
@@ -436,7 +436,7 @@ struct ReviewView: View {
             VStack(alignment: .leading, spacing: 15) {
                 HStack { Button { exitSession() } label: { Label("退出", systemImage: "chevron.left") }; Spacer(); Text("第 \(index + 1) / \(queue.count) 题").font(AppTheme.inputFont.weight(.semibold)) }
                 ProgressView(value: Double(index + 1), total: Double(max(1, queue.count))).tint(AppTheme.accent)
-                Text([record.subject, record.module].compactMap { $0 }.joined(separator: " · ")).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(AppTheme.accent)
+                Text([record.subject, record.moduleDisplayTitle].compactMap { $0 }.joined(separator: " · ")).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(AppTheme.accent)
                 Text(object["question"] as? String ?? "暂无题干").font(AppTheme.bodyFont).fixedSize(horizontal: false, vertical: true)
                 if options.isEmpty {
                     NativeStatusCard(title: "这道错题没有选项", detail: "查看原题后，可直接标记为已复习。", systemImage: "doc.text", color: AppTheme.accent)

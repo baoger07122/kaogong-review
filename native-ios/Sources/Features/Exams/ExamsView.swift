@@ -722,7 +722,7 @@ private struct ExamAttemptDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
-                        let metadata = [error.subject, error.module].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        let metadata = [error.subject, error.moduleDisplayTitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                         if !metadata.isEmpty {
                             Text(metadata)
                                 .font(.system(size: 12))

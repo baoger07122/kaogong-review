@@ -20,6 +20,9 @@ struct NoteTypeManagerView: View {
         NoteTypeRepository.types(subject: subject.name, module: contextModule, records: records, includeDisabled: true)
     }
     private var contextModule: String { subject.isFlat ? "" : module }
+    private var moduleTitle: String {
+        subject.isFlat ? "全部" : SubjectDefinition.moduleTitle(module, subject: subject.name)
+    }
 
     var body: some View {
         ScrollView {
@@ -28,7 +31,7 @@ struct NoteTypeManagerView: View {
                     .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                 contextSelectors
                 HStack {
-                    Text("\(subject.name) · \(subject.isFlat ? "全部" : module)").font(AppTheme.sectionTitleFont)
+                    Text("\(subject.name) · \(moduleTitle)").font(AppTheme.sectionTitleFont)
                     Spacer()
                     Button { beginEdit(nil) } label: { Label("新增", systemImage: "plus") }
                         .font(AppTheme.inputFont.weight(.semibold))
@@ -62,8 +65,10 @@ struct NoteTypeManagerView: View {
             } label: { selector(title: "科目", value: subject.name) }
             if !subject.isFlat {
                 Menu {
-                    ForEach(subject.modules, id: \.self) { value in Button(value) { module = value } }
-                } label: { selector(title: "模块", value: module) }
+                    ForEach(subject.modules, id: \.self) { value in
+                        Button(SubjectDefinition.moduleTitle(value, subject: subject.name)) { module = value }
+                    }
+                } label: { selector(title: "模块", value: moduleTitle) }
             }
         }
     }
@@ -106,7 +111,7 @@ struct NoteTypeManagerView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            Text("保存范围：\(subject.name) → \(subject.isFlat ? "全部" : module)")
+            Text("保存范围：\(subject.name) → \(moduleTitle)")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }

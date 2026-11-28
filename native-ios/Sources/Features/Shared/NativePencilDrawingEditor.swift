@@ -72,6 +72,23 @@ final class PencilDrawingController: ObservableObject {
     @Published fileprivate(set) var drawingLoadRevision = 0
     @Published private(set) var userDrawingRevision = 0
     @Published fileprivate var action: PencilAction?
+    private var closeCapture: (owner: UUID, capture: (@escaping () -> Void) -> Bool)?
+
+    var needsCloseCapture: Bool { hasPendingDrawingPublish || action != nil }
+
+    func installCloseCapture(owner: UUID, capture: @escaping (@escaping () -> Void) -> Bool) {
+        guard closeCapture?.owner != owner else { return }
+        closeCapture = (owner, capture)
+    }
+
+    fileprivate func removeCloseCapture(owner: UUID) {
+        guard closeCapture?.owner == owner else { return }
+        closeCapture = nil
+    }
+
+    func captureForClose(_ completion: @escaping () -> Void) -> Bool {
+        closeCapture?.capture(completion) ?? false
+    }
 
     private let defaults: UserDefaults
     private var previousPenColor: UIColor
@@ -402,6 +419,7 @@ struct NativePencilDrawingToolbar<ContextControls: View>: View {
     let toolsEnabled: Bool
     let isClosing: Bool
     let closeIdentifier: String
+    let waitsForCloseFeedback: Bool
     let onClose: (() -> Void)?
     let contextControls: ContextControls
 
@@ -412,6 +430,7 @@ struct NativePencilDrawingToolbar<ContextControls: View>: View {
         toolsEnabled: Bool = true,
         isClosing: Bool = false,
         closeIdentifier: String = "drawing-close",
+        waitsForCloseFeedback: Bool = true,
         onClose: (() -> Void)?,
         @ViewBuilder contextControls: () -> ContextControls
     ) {
@@ -419,6 +438,7 @@ struct NativePencilDrawingToolbar<ContextControls: View>: View {
         self.toolsEnabled = toolsEnabled
         self.isClosing = isClosing
         self.closeIdentifier = closeIdentifier
+        self.waitsForCloseFeedback = waitsForCloseFeedback
         self.onClose = onClose
         self.contextControls = contextControls()
     }
@@ -428,7 +448,8 @@ struct NativePencilDrawingToolbar<ContextControls: View>: View {
             if onClose != nil {
                 tool("xmark", label: "退出涂鸦", showsConfirmedPress: showsCloseFeedback) {
                     guard !showsCloseFeedback, !isClosing else { return }
-                    showsCloseFeedback = true
+                    if waitsForCloseFeedback { showsCloseFeedback = true }
+                    else { onClose?() }
                 }
                 .disabled(showsCloseFeedback || isClosing)
                 .accessibilityIdentifier(closeIdentifier)
@@ -664,9 +685,11 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.shouldBecomeFirstResponder = isActive
         canvas.isUserInteractionEnabled = isActive && context.coordinator.canvasReady
         if !isActive {
+            context.coordinator.removeCloseCapture()
             canvas.resignFirstResponder()
             return
         }
+        context.coordinator.installCloseCapture(on: canvas)
         context.coordinator.updateTool(canvas)
         canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
@@ -679,42 +702,12 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         if canvas.window != nil, !canvas.isFirstResponder {
             DispatchQueue.main.async { canvas.becomeFirstResponder() }
         }
-        if let action, context.coordinator.lastActionID != action.id {
-            context.coordinator.lastActionID = action.id
-            var waitsForPublish = false
-            switch action.kind {
-            case .undo:
-                canvas.undoManager?.undo()
-                context.coordinator.publish(canvas, userInitiated: true)
-            case .redo:
-                canvas.undoManager?.redo()
-                context.coordinator.publish(canvas, userInitiated: true)
-            case .clear:
-                let previousDrawing = canvas.drawing
-                canvas.undoManager?.registerUndo(withTarget: context.coordinator) { coordinator in
-                    coordinator.restore(previousDrawing, on: canvas)
-                }
-                canvas.undoManager?.setActionName("清空涂鸦")
-                canvas.drawing = PKDrawing()
-                context.coordinator.publish(canvas, userInitiated: true)
-            case .commit:
-                waitsForPublish = true
-                context.coordinator.publish(canvas) {
-                    self.controller.finishAction(action.id)
-                    action.completion?()
-                }
-            }
-            if !waitsForPublish {
-                DispatchQueue.main.async {
-                    self.controller.finishAction(action.id)
-                    action.completion?()
-                }
-            }
-        }
+        if let action { context.coordinator.apply(action, to: canvas) }
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
     }
 
     static func dismantleUIView(_ uiView: InteractivePencilCanvasView, coordinator: Coordinator) {
+        coordinator.removeCloseCapture()
         coordinator.flushForDismantle(uiView)
     }
 
@@ -723,6 +716,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         let controller: PencilDrawingController
         var lastEncoded = ""
         var lastActionID: UUID?
+        private let closeCaptureOwner = UUID()
         var drawingChanged = false
         private var drawingRevision = 0
         private var loadGeneration = 0
@@ -741,6 +735,54 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         init(parent: PencilCanvasRepresentable, controller: PencilDrawingController) {
             self.parent = parent
             self.controller = controller
+        }
+
+        func installCloseCapture(on canvas: InteractivePencilCanvasView) {
+            controller.installCloseCapture(owner: closeCaptureOwner) { [weak self, weak canvas] completion in
+                guard let self, let canvas, canvas.isDrawingReady, self.canvasReady,
+                      self.controller.canvasReady,
+                      self.parent.drawingLoadRevision == self.controller.drawingLoadRevision else { return false }
+                canvas.shouldBecomeFirstResponder = false
+                canvas.isUserInteractionEnabled = false
+                if let action = self.controller.action { self.apply(action, to: canvas) }
+                self.publish(canvas, completion: completion)
+                return true
+            }
+        }
+
+        func removeCloseCapture() {
+            controller.removeCloseCapture(owner: closeCaptureOwner)
+        }
+
+        func apply(_ action: PencilAction, to canvas: InteractivePencilCanvasView) {
+            guard lastActionID != action.id else { return }
+            lastActionID = action.id
+            switch action.kind {
+            case .undo:
+                canvas.undoManager?.undo()
+                publish(canvas, userInitiated: true)
+            case .redo:
+                canvas.undoManager?.redo()
+                publish(canvas, userInitiated: true)
+            case .clear:
+                let previousDrawing = canvas.drawing
+                canvas.undoManager?.registerUndo(withTarget: self) { coordinator in
+                    coordinator.restore(previousDrawing, on: canvas)
+                }
+                canvas.undoManager?.setActionName("清空涂鸦")
+                canvas.drawing = PKDrawing()
+                publish(canvas, userInitiated: true)
+            case .commit:
+                publish(canvas) { [controller] in
+                    controller.finishAction(action.id)
+                    action.completion?()
+                }
+                return
+            }
+            DispatchQueue.main.async { [controller] in
+                controller.finishAction(action.id)
+                action.completion?()
+            }
         }
 
         func updateTool(_ canvas: PKCanvasView) {

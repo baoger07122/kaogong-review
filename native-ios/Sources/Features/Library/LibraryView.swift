@@ -70,6 +70,7 @@ struct LibraryView: View {
         .onAppear { NativePerformanceLog.event("library onAppear") }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
             errorDetailWarmCache.reset()
+            LibraryErrorDetailWarmCache.committedEdit.reset()
             snapshotCache.invalidate()
             recordListCache.invalidate()
             ReviewSourceMetadataCache.shared.removeAll()
@@ -376,10 +377,6 @@ struct LibraryView: View {
                 { replaceCurrentRoute(with: .wordMigrationDetail(recordID: id)) }
             },
             onSaved: { savedID in
-                if let recordID {
-                    preparedEditDrafts["\(kind.collection)|\(recordID)"] = nil
-                    return
-                }
                 guard recordID == nil, kind == .errors || kind == .words else { return }
                 Task { @MainActor in
                     await Task.yield()
@@ -1336,11 +1333,12 @@ struct LibraryView: View {
         return unique.map { reference in
             let title: String
             if nameCounts[reference.name, default: 0] > 1 {
+                let module = SubjectDefinition.moduleTitle(reference.module ?? scope.subject ?? "旧考点", subject: scope.subject)
                 if let typeID = reference.typeID {
                     let typeName = typeCatalog.first(where: { $0.id == typeID && $0.module == reference.module })?.name ?? "题型已删除"
-                    title = "\(reference.module ?? scope.subject ?? "旧考点") · \(typeName) · \(reference.name)"
+                    title = "\(module) · \(typeName) · \(reference.name)"
                 } else {
-                    title = "\(reference.module ?? scope.subject ?? "旧考点") · 旧考点 · \(reference.name)"
+                    title = "\(module) · 旧考点 · \(reference.name)"
                 }
             } else {
                 title = reference.name
@@ -1942,7 +1940,7 @@ private struct LibraryBulkSourceAssignmentView: View {
                                 .foregroundStyle(selectedIDs.contains(record.compoundID) ? AppTheme.accent : .secondary)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(record.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(2)
-                                Text("\(record.collection == "errors" ? "错题" : (record.collection == "notes" ? "笔记" : "便签")) · \([record.subject, record.module].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / "))")
+                                Text("\(record.collection == "errors" ? "错题" : (record.collection == "notes" ? "笔记" : "便签")) · \([record.subject, record.moduleDisplayTitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / "))")
                                     .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: 0)

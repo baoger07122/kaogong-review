@@ -166,7 +166,7 @@ struct LibraryScope: Equatable {
     var isLogicFill: Bool { subject == "言语理解" && module == "逻辑填空" }
 
     var title: String {
-        if let module { return module }
+        if let module { return SubjectDefinition.moduleTitle(module, subject: subject) }
         if let subject { return subject }
         return "全部"
     }

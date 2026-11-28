@@ -16,7 +16,8 @@ enum SubjectModuleTitle {
     static func errorDetailTitle(
         recordModule: String?,
         payloadModule: String?,
-        questionBankModule: String?
+        questionBankModule: String?,
+        subject: String?
     ) -> String {
         let storedModule = [recordModule, payloadModule]
             .compactMap { value -> String? in
@@ -26,7 +27,8 @@ enum SubjectModuleTitle {
             .first
         let module = storedModule ?? normalized(questionBankModule)
         guard !module.isEmpty else { return "错题详情" }
-        return module.hasSuffix("题") ? module : "\(module)题"
+        let title = SubjectDefinition.moduleTitle(module, subject: subject)
+        return title.hasSuffix("题") ? title : "\(title)题"
     }
 }
 

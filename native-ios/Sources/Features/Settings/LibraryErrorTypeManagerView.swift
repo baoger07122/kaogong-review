@@ -15,7 +15,10 @@ struct LibraryErrorTypeModulesView: View {
     var body: some View {
         List {
             ForEach(subject.modules, id: \.self) { module in
-                moduleLink(module, module: module, accessibilityID: "error-type-module-\(subject.rawValue)-\(module)")
+                moduleLink(
+                    SubjectDefinition.moduleTitle(module, subject: subject.rawValue),
+                    module: module, accessibilityID: "error-type-module-\(subject.rawValue)-\(module)"
+                )
             }
             if LibraryErrorTypeRepository.types(for: subject, records: records).contains(where: { $0.module == nil }) {
                 moduleLink("原有通用类型", module: nil, accessibilityID: "error-type-module-legacy-\(subject.rawValue)")
@@ -116,7 +119,7 @@ struct LibraryErrorTypeManagerView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
-        .navigationTitle(module ?? "原有通用类型")
+        .navigationTitle(module.map { SubjectDefinition.moduleTitle($0, subject: subject.rawValue) } ?? "原有通用类型")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isEditing {

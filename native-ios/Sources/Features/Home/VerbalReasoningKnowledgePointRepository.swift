@@ -444,11 +444,12 @@ enum VerbalReasoningKnowledgePointRepository {
         types: [LibraryErrorType],
         subject: String
     ) -> String {
+        let module = SubjectDefinition.moduleTitle(reference.module ?? subject, subject: subject)
         guard let typeID = reference.typeID else {
-            return "\(reference.module ?? subject) · 旧考点"
+            return "\(module) · 旧考点"
         }
         let typeName = types.first(where: { $0.id == typeID && $0.module == reference.module })?.name ?? "题型已删除"
-        return "\(reference.module ?? subject) · \(typeName)"
+        return "\(module) · \(typeName)"
     }
 
     private static func prepareMigrationReferenceChanges(

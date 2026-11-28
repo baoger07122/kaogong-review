@@ -420,7 +420,7 @@ struct LibraryTagSelectionDialog: View {
             spacing: kind == .knowledgePoint ? 8 : 16) {
             if kind == .knowledgePoint {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("当前范围 · \(module)")
+                    Text("当前范围 · \(SubjectDefinition.moduleTitle(module, subject: subject))")
                         .font(.system(size: 12, weight: .semibold)).lineLimit(1).frame(height: 20, alignment: .leading)
                     searchAndAdd
                     LibraryKnowledgePointGroupBar(
