@@ -422,7 +422,7 @@ private struct LibraryErrorRecordCard: View {
             } else {
                 regularCardContent
                 if let entryDate = snapshot.errorEntryDate {
-                    Text("录入 \(Self.entryDateFormatter.string(from: entryDate))")
+                    Text(Self.entryDateFormatter.string(from: entryDate))
                         .font(.system(size: 11, weight: .regular))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -463,7 +463,7 @@ private struct LibraryErrorRecordCard: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = .autoupdatingCurrent
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        formatter.dateFormat = "yy.MM.dd"
         return formatter
     }()
 
