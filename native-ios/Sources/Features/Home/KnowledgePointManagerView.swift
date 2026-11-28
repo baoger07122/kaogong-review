@@ -62,7 +62,7 @@ struct KnowledgePointManagerView: View {
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var showsOrder = false
-    @State private var verbalTypeSelection = Self.legacyVerbalType
+    @State private var verbalTypeSelection: String?
     @State private var selectedGroupID: String?
     @State private var isAddingGroup = false
     @State private var editingGroupID: String?
@@ -102,21 +102,49 @@ struct KnowledgePointManagerView: View {
     private var verbalTypes: [LibraryErrorType] {
         guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject.name) else { return [] }
         return LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-            .filter { $0.module == module }
+            .filter { typeSubject == .verbalReasoning ? $0.module == module : $0.isAvailable(in: module) }
     }
-    private var selectedVerbalTypeID: String? {
-        verbalTypeSelection == Self.legacyVerbalType ? nil : verbalTypeSelection
+
+    private var legacyKnowledgePoints: [String] {
+        TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
-    private var selectedVerbalTypeName: String {
-        if verbalTypeSelection == Self.legacyVerbalType {
-            return kind == .mistakeTag ? "未分类" : "旧考点"
-        }
-        return verbalTypes.first(where: { $0.id == verbalTypeSelection })?.name ?? "旧考点"
+
+    private var hasLegacyKnowledgePoints: Bool {
+        isVerbalKnowledgePoint && !legacyKnowledgePoints.isEmpty
     }
+
+    private var legacyTypeOptionTitle: String? {
+        guard isTypedCatalogTag else { return nil }
+        if kind == .mistakeTag { return "未分类" }
+        if hasLegacyKnowledgePoints { return "旧考点" }
+        let legacyGroups = LibraryKnowledgePointGroupRepository.groups(
+            subject: subject.name, module: module, category: .knowledgePoint, records: records
+        )
+        return legacyGroups.isEmpty ? nil : "通用考点"
+    }
+
+    private var selectedVerbalType: LibraryErrorType? {
+        guard isTypedCatalogTag else { return nil }
+        if verbalTypeSelection == Self.legacyVerbalType, legacyTypeOptionTitle != nil { return nil }
+        let types = verbalTypes
+        return types.first { $0.id == verbalTypeSelection } ?? types.first
+    }
+
+    private var selectedVerbalTypeID: String? { selectedVerbalType?.id }
+    private var selectedVerbalTypeName: String? { selectedVerbalType?.name ?? legacyTypeOptionTitle }
+
     private var scopeTitle: String {
         let scope = module == TagLibraryRepository.sharedQuantityCauseModule ? "数量关系通用" : module
-        return isTypedCatalogTag ? "\(scope) · \(selectedVerbalTypeName)" : "\(scope) · \(kind.rawValue)"
+        return "\(scope) · \(selectedVerbalTypeName ?? kind.rawValue)"
     }
+
+    private var saveScopeTitle: String {
+        [subject.name, moduleDisplayName(module), selectedVerbalTypeName]
+            .compactMap { $0 }
+            .joined(separator: " → ")
+    }
+
     private var tags: [String] {
         if kind == .mistakeTag {
             return LibraryMistakeTagRepository.tags(
@@ -127,7 +155,7 @@ struct KnowledgePointManagerView: View {
             return TagLibraryRepository.tags(kind: kind, module: module, records: records)
         }
         guard let selectedVerbalTypeID else {
-            return TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+            return legacyKnowledgePoints
         }
         return VerbalReasoningKnowledgePointRepository.tags(
             module: module,
@@ -205,8 +233,8 @@ struct KnowledgePointManagerView: View {
 
                 if subject.isFlat {
                     moduleSelector
-                } else if isTypedCatalogTag {
-                    verbalTypeSelector
+                } else if let selectedVerbalTypeName {
+                    verbalTypeSelector(selectedTitle: selectedVerbalTypeName)
                 }
 
                 if kind.groupCategory != nil {
@@ -513,23 +541,24 @@ struct KnowledgePointManagerView: View {
                 category: kind.groupCategory ?? .knowledgePoint
             )
         }
-        .onAppear {
-            resetVerbalTypeSelection()
-            selectDefaultGroupIfNeeded()
-        }
+        .onAppear { selectDefaultGroupIfNeeded() }
         .onChange(of: subject.name) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: module) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: selectedVerbalTypeID) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: kind) { _, _ in
             if !availableModules.contains(module) { module = availableModules.first ?? "" }
+            if verbalTypeSelection == Self.legacyVerbalType { verbalTypeSelection = nil }
             moveTypeChangedScope()
             selectDefaultGroupIfNeeded()
         }
-        .onChange(of: verbalTypes.map(\.id)) { _, _ in
-            if isTypedCatalogTag,
-               !verbalTypes.contains(where: { $0.id == verbalTypeSelection }),
-               verbalTypeSelection != Self.legacyVerbalType {
-                resetVerbalTypeSelection()
+        .onChange(of: verbalTypes.map(\.id)) { _, ids in
+            guard let verbalTypeSelection, verbalTypeSelection != Self.legacyVerbalType,
+                  !ids.contains(verbalTypeSelection) else { return }
+            self.verbalTypeSelection = nil
+        }
+        .onChange(of: hasLegacyKnowledgePoints) { _, hasPoints in
+            if isVerbalKnowledgePoint, !hasPoints, verbalTypeSelection == Self.legacyVerbalType {
+                verbalTypeSelection = nil
             }
         }
     }
@@ -540,7 +569,7 @@ struct KnowledgePointManagerView: View {
                 Button(value.name) {
                     subject = value
                     module = modules(for: value).first ?? ""
-                    resetVerbalTypeSelection()
+                    verbalTypeSelection = nil
                 }
             }
         } label: { selector(title: "科目", value: subject.name) }
@@ -551,7 +580,7 @@ struct KnowledgePointManagerView: View {
             ForEach(availableModules, id: \.self) { value in
                 Button(moduleDisplayName(value)) {
                     module = value
-                    resetVerbalTypeSelection()
+                    verbalTypeSelection = nil
                 }
             }
         } label: {
@@ -564,26 +593,19 @@ struct KnowledgePointManagerView: View {
             ? "通用" : SubjectDefinition.moduleTitle(module, subject: subject.name)
     }
 
-    private var verbalTypeSelector: some View {
+    private func verbalTypeSelector(selectedTitle: String) -> some View {
         Menu {
             ForEach(verbalTypes) { type in
                 Button(type.name) { verbalTypeSelection = type.id }
             }
-            if !verbalTypes.isEmpty { Divider() }
-            Button("旧考点") { verbalTypeSelection = Self.legacyVerbalType }
+            if let legacyTypeOptionTitle {
+                if !verbalTypes.isEmpty { Divider() }
+                Button(legacyTypeOptionTitle) { verbalTypeSelection = Self.legacyVerbalType }
+            }
         } label: {
-            selector(title: subject.name == "资料分析" ? "错误类型" : "题型", value: selectedVerbalTypeName)
+            selector(title: errorTypeLabel, value: selectedTitle)
         }
         .accessibilityIdentifier("typed-knowledge-point-type-selector")
-    }
-
-    private func resetVerbalTypeSelection() {
-        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject.name) else {
-            verbalTypeSelection = Self.legacyVerbalType
-            return
-        }
-        verbalTypeSelection = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-            .first(where: { $0.isAvailable(in: module) })?.id ?? Self.legacyVerbalType
     }
 
     private func selector(title: String, value: String) -> some View {
@@ -608,7 +630,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveEditor
         ) {
             TextField("名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(moduleDisplayName(module))\(isTypedCatalogTag ? " → \(selectedVerbalTypeName)" : "")")
+            Text("保存范围：\(saveScopeTitle)")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }
@@ -623,7 +645,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveGroup
         ) {
             TextField("分组名称", text: $groupNameDraft).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(moduleDisplayName(module))\(selectedTypeID.map { _ in " → \(selectedVerbalTypeName)" } ?? "")")
+            Text("保存范围：\(saveScopeTitle)")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             if !LibraryKnowledgePointGroupPolicy.canUseGroupName(
                 groupNameDraft, groups: groups, excluding: editingGroupID
