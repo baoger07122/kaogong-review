@@ -361,6 +361,7 @@ jobs:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
           RUN_NAVIGATION: ${{ steps.simulator_scope.outputs.navigation }}
           RUN_SHENLUN: ${{ steps.simulator_scope.outputs.shenlun }}
+          RUN_LIBRARY: ${{ steps.simulator_scope.outputs.library }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
@@ -413,6 +414,16 @@ jobs:
               -only-testing:SpeedAnimationTests/ShenlunWorkspacePaperLayoutTests \
               -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testPinchZoomKeepsAnnotationCanvasAlignedWithPaper \
               -only-testing:SpeedInteractionUITests/ShenlunReaderInteractionUITests/testAnswerAndReviewTabsSaveTheirOwnFields \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+          fi
+          if [ "$RUN_LIBRARY" = "true" ]; then
+            mkdir -p build
+            xcodebuild build-for-testing \
+              -project native-ios/KaogongReviewNative.xcodeproj \
+              -scheme KaogongReviewNative \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath build/NativeTestDerivedData \
+              -parallel-testing-enabled NO \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
           fi
 
