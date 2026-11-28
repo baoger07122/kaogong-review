@@ -69,14 +69,11 @@ struct ExamsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 listFilters
-                HStack(spacing: 5) {
+                HStack(spacing: 9) {
                     metric("套卷次数", "\(statisticsExams.count)")
-                    Divider().frame(height: 26)
                     metric(scoreMetricTitle, averageScoreText)
-                    Divider().frame(height: 26)
                     metric("总体正确率", overallAccuracyText)
                 }
-                .nativeCard(padding: 9)
                 if visibleExams.isEmpty {
                     NativeStatusCard(title: "暂无套卷", detail: "点击加号记录一次真题或模拟卷", systemImage: "doc.text", color: AppTheme.accent)
                 } else {
@@ -89,14 +86,11 @@ struct ExamsView: View {
                             ForEach(ExamSort.allCases) { value in Button(value.rawValue) { selectedSort = value } }
                         }
                     }
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 9) {
                         ForEach(visibleExams, id: \.recordID) { exam in
-                            if exam.recordID != visibleExams.first?.recordID { Divider() }
-                            examRow(exam)
+                            examCard(exam)
                         }
                     }
-                    .padding(.horizontal, 13)
-                    .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
                 }
             }
             .frame(maxWidth: 900)
@@ -179,31 +173,23 @@ struct ExamsView: View {
         .background(Color.primary.opacity(0.055), in: Capsule())
     }
 
-    private func examRow(_ exam: StoredRecord) -> some View {
+    private func examCard(_ exam: StoredRecord) -> some View {
         let object = exam.indexObject ?? [:]
         let examDraft = ExamDraft(record: exam)
-        let type = LibraryReviewSource.explicitValue(in: object) ?? .pending
-        let score = ExamDisplayFormatting.score(object["score"])
-        let maximum = ExamDisplayFormatting.score(object["maximumScore"])
+        let score = ExamDisplayFormatting.score(object["score"]).nilIfEmpty ?? "—"
+        let date = examDate(exam)
         let metrics = examDraft.metrics
         let correctCount = metrics.correctCount.map(String.init) ?? "—"
         let resultCount = metrics.totalQuestions.map(String.init) ?? "—"
         let accuracy = metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—"
         let duration = metrics.totalTimeSeconds.map(ExamDisplayFormatting.compactDuration) ?? "—"
         let note = ExamReviewNote(in: examDraft.original)
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 6) {
             Button {
                 attemptTarget = ExamRecordTarget(recordID: exam.recordID)
             } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        NativeTagFlow(spacing: 5) {
-                            Text(type.title)
-                                .foregroundStyle(type == .pending ? AppTheme.warning : Color.secondary)
-                            Text(examDate(exam), format: .dateTime.year().month().day())
-                        }
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(.secondary)
                         Text(examDraft.name.nilIfEmpty ?? "未命名套卷")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
@@ -218,24 +204,15 @@ struct ExamsView: View {
                         .monospacedDigit()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text(score.nilIfEmpty ?? "—")
-                            .font(.system(size: 21, weight: .semibold))
-                            .foregroundStyle(AppTheme.accent)
-                        if !maximum.isEmpty {
-                            Text("/\(maximum)")
-                                .font(.system(size: 11))
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.leading, 3)
-                            .accessibilityHidden(true)
-                    }
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .fixedSize(horizontal: true, vertical: false)
+                    Text(score)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityLabel("得分 \(score)")
                 }
-                .frame(minHeight: 54)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -243,8 +220,13 @@ struct ExamsView: View {
             if showsReviewNotes, let summary = note.summary {
                 notePreview(note, summary: summary, recordID: exam.recordID)
             }
+            if date != .distantPast {
+                Text(date, format: .dateTime.year().month().day())
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(.vertical, 8)
+        .nativeCard(padding: 13)
     }
 
     private func notePreview(_ note: ExamReviewNote, summary: String, recordID: String) -> some View {
@@ -283,19 +265,33 @@ struct ExamsView: View {
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
-        VStack(spacing: 3) {
-            Text(title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-            Text(value).font(.system(size: 16, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.72)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.system(size: 24, weight: .semibold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            Text(title)
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard(padding: 13)
         .accessibilityElement(children: .combine)
     }
 
     private func filterMenu<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         Menu(content: content) {
             HStack(spacing: 4) { Text(title); Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)) }
-                .font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 10).frame(minHeight: 44)
+                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                .foregroundStyle(AppTheme.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(AppTheme.secondaryBackground, in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
     }
 
