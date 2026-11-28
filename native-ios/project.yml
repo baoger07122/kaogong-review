@@ -1,4 +1,5 @@
 name: KaogongReviewNative
+# Release-only rebuild after simulator timeout; no app behavior change.
 options:
   bundleIdPrefix: com.baoger07122
   developmentLanguage: zh-Hans
