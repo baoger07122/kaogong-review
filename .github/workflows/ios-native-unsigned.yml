@@ -483,6 +483,12 @@ jobs:
               -only-testing:SpeedAnimationTests/LibraryDoodleExitSessionTests
               -only-testing:SpeedAnimationTests/LibraryErrorEditAndNoteTests
               -only-testing:SpeedAnimationTests/JudgmentReasoningModuleTests
+              -only-testing:SpeedAnimationTests/LibraryTagDisplayPreferencesTests
+              -only-testing:SpeedAnimationTests/ExamReviewNoteTests
+              -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testOneCharacterDoneAndTopAlignedEditor
+              -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testTableArrowsKeepInputAndPlaceCaretAtEnd
+              -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testBackspaceExitsEmptyListWithoutRemovingPreviousParagraph
+              -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testSingleTapMovesNoteCaret
             )
           elif [ "$RUN_QUESTION_BANK" = "true" ]; then
             TEST_SCHEME=QuestionBankImport
