@@ -14,10 +14,12 @@ private enum RichTextMetrics {
 
 private enum NoteParagraphMetrics {
     static let lineHeight: CGFloat = 24
-    static let listTextIndent: CGFloat = 30
     static let listSpacing: CGFloat = 6
     static let bulletDiameter: CGFloat = 6
-    static let bulletCenterOffset: CGFloat = 9
+    static let bulletLeadingGap: CGFloat = 9
+    static let bulletTrailingGap: CGFloat = 15
+    static let numberTrailingGap: CGFloat = 12
+    static let listTextIndent = bulletLeadingGap + bulletDiameter + bulletTrailingGap
     static let quoteIndent: CGFloat = 25
     static let quoteRuleWidth: CGFloat = 3
     static let calloutInset: CGFloat = 22
@@ -194,11 +196,15 @@ private struct NoteListMarker {
         paragraph.insert(NSAttributedString(string: kind.prefix, attributes: markerAttributes), at: 0)
 
         let style = (oldStyle?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-        let markerWidth = (String(kind.prefix.dropLast()) as NSString).size(withAttributes: [.font: markerFont]).width
         style.firstLineHeadIndent = base + NativeRichTextNoteFormatting.markerInset
-        style.headIndent = base + max(
-            NoteParagraphMetrics.listTextIndent, NativeRichTextNoteFormatting.markerInset + ceil(markerWidth) + 6
-        )
+        var textIndent = NoteParagraphMetrics.listTextIndent
+        if case .number = kind {
+            let numberText = String(kind.prefix.dropLast()) as NSString
+            let numberWidth = ceil(numberText.size(withAttributes: [.font: markerFont]).width)
+            let requiredIndent = NativeRichTextNoteFormatting.markerInset + numberWidth + NoteParagraphMetrics.numberTrailingGap
+            textIndent = max(textIndent, requiredIndent)
+        }
+        style.headIndent = base + textIndent
         style.tailIndent = 0
         style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent, options: [:])]
         style.textLists = []
@@ -441,11 +447,10 @@ private final class NoteParagraphLayoutFragment: NSTextLayoutFragment {
 
     private var bulletFrame: CGRect? {
         guard drawsBullet, let first = textLineFragments.first else { return nil }
-        let line = first.typographicBounds
-        let start = max(line.minX, style?.firstLineHeadIndent ?? 0)
         let diameter = NoteParagraphMetrics.bulletDiameter
-        return CGRect(x: start + NoteParagraphMetrics.bulletCenterOffset - diameter / 2,
-                      y: line.midY - diameter / 2, width: diameter, height: diameter)
+        let textStart = style?.headIndent ?? NoteParagraphMetrics.listTextIndent
+        return CGRect(x: textStart - NoteParagraphMetrics.bulletTrailingGap - diameter,
+                      y: first.typographicBounds.midY - diameter / 2, width: diameter, height: diameter)
     }
 
     private var captionAttributes: [NSAttributedString.Key: Any] {

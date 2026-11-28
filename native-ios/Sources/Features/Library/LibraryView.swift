@@ -104,12 +104,7 @@ struct LibraryView: View {
             renderLimit = 40
         }
         .onChange(of: hasUnclassifiedTypeAvailable) { _, isAvailable in
-            guard !isAvailable else { return }
-            if usesQuantityTypeFilter, selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle {
-                selectedQuantityType = ""
-            } else if usesErrorTypeFilter, selectedErrorType == .unclassified {
-                selectedErrorType = .all
-            }
+            if !isAvailable { clearUnclassifiedTypeSelection() }
         }
         .onChange(of: navigationPath) { _, path in
             let activeEditorKey: String? = path.last.flatMap { route in
@@ -754,6 +749,10 @@ struct LibraryView: View {
             wordCategory = saved.wordCategory
             wordSentiment = saved.wordSentiment
             wordEntryKind = saved.wordEntryKind
+            if selectedErrorType == .unclassified || selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle,
+               !hasUnclassifiedTypeAvailable {
+                clearUnclassifiedTypeSelection()
+            }
         } else {
             scope = LibraryScope(reviewSource: source)
             expandedSubject = nil
@@ -985,15 +984,21 @@ struct LibraryView: View {
     }
     private var hasVisibleTypeFilterOptions: Bool {
         if usesQuantityTypeFilter {
-            return !quantityQuestionTypes.isEmpty || hasUnclassifiedTypeAvailable
+            return !quantityQuestionTypes.isEmpty
         }
-        if usesErrorTypeFilter {
-            return !errorTypes.isEmpty || hasUnclassifiedTypeAvailable
-        }
-        return false
+        return usesErrorTypeFilter && !errorTypes.isEmpty
     }
+
+    private func clearUnclassifiedTypeSelection() {
+        if usesQuantityTypeFilter, selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle {
+            selectedQuantityType = ""
+        } else if usesErrorTypeFilter, selectedErrorType == .unclassified {
+            selectedErrorType = .all
+        }
+    }
+
     private var hasUnclassifiedTypeAvailable: Bool {
-        guard usesQuantityTypeFilter || usesErrorTypeFilter else { return false }
+        guard hasVisibleTypeFilterOptions else { return false }
         let keyword = normalizedSearch(searchText)
         let linkedWordNames = keyword.isEmpty ? [:] : snapshotCache.wordNames(in: records)
         let examTitles = !keyword.isEmpty && scope.reviewSource == .mock
