@@ -15,7 +15,11 @@ private enum RichTextMetrics {
 private enum NativeRichTextNoteFormatting {
     static let quoteKey = NSAttributedString.Key("com.kaogong.note.quote")
     static let listKey = NSAttributedString.Key("com.kaogong.note.list-item")
-    static let quoteIndent: CGFloat = 14
+    static let blockKey = NSAttributedString.Key("com.kaogong.note.block")
+    static let placeholder = "\u{200B}"
+    static let quoteIndent: CGFloat = 22
+    static let calloutInset: CGFloat = 16
+    static let markerInset: CGFloat = 3
 
     static func isNeutralBackground(_ value: Any?) -> Bool {
         guard let color = value as? UIColor else { return false }
@@ -45,11 +49,144 @@ private enum NativeRichTextNoteFormatting {
         let safeLocation = min(max(0, location), attributed.length - 1)
         return isQuoted(attributed.attributes(at: safeLocation, effectiveRange: nil))
     }
+
+    static func block(in attributes: [NSAttributedString.Key: Any]) -> NativeRichTextNoteBlockKind? {
+        if let raw = attributes[blockKey] as? String,
+           let block = NativeRichTextNoteBlockKind(rawValue: raw) { return block }
+        return isQuoted(attributes) ? .quote : nil
+    }
+
+    static func plainAttributes(from attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
+        var result = attributes
+        result.removeValue(forKey: blockKey)
+        result.removeValue(forKey: quoteKey)
+        result.removeValue(forKey: listKey)
+        result[.paragraphStyle] = NSParagraphStyle.default
+        result.removeValue(forKey: .attachment)
+        return result
+    }
+
+    static func applyBlock(_ block: NativeRichTextNoteBlockKind?, to text: NSMutableAttributedString, range: NSRange) {
+        guard range.length > 0 else { return }
+        let currentStyle = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+        let style = (currentStyle?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        style.headIndent = 0
+        style.firstLineHeadIndent = 0
+        style.tailIndent = 0
+        style.minimumLineHeight = 0
+        style.maximumLineHeight = 0
+        style.paragraphSpacingBefore = 0
+        style.paragraphSpacing = 0
+        style.textLists = []
+        style.tabStops = []
+        text.removeAttribute(blockKey, range: range)
+        text.removeAttribute(quoteKey, range: range)
+        text.removeAttribute(listKey, range: range)
+        if let block {
+            text.addAttribute(blockKey, value: block.rawValue, range: range)
+            if block.includesQuote {
+                text.addAttribute(quoteKey, value: true, range: range)
+            }
+            style.headIndent = (block.includesQuote ? quoteIndent : 0) + (block.includesCallout ? calloutInset : 0)
+            style.firstLineHeadIndent = style.headIndent
+            style.tailIndent = block.includesCallout ? -calloutInset : 0
+            style.paragraphSpacingBefore = block.includesCallout ? 8 : 2
+            style.paragraphSpacing = block.includesCallout ? 8 : 5
+            if block == .divider {
+                style.minimumLineHeight = 16
+                style.maximumLineHeight = 16
+            }
+        }
+        text.addAttribute(.paragraphStyle, value: style, range: range)
+    }
+}
+
+private struct NoteListMarker {
+    enum Kind: Equatable {
+        case bullet
+        case number(Int)
+
+        var prefix: String {
+            switch self {
+            case .bullet: "•\t"
+            case let .number(number): "\(number).\t"
+            }
+        }
+
+        var next: Kind {
+            switch self {
+            case .bullet: .bullet
+            case let .number(number): .number(number + 1)
+            }
+        }
+    }
+
+    let kind: Kind
+    let prefix: String
+
+    private static let oldBullets = ["•", "◦", "▪︎", "▪", "■", "–"]
+    private static let numberExpression = try? NSRegularExpression(pattern: #"^([0-9]{1,12})\.[ \t\u00a0]"#)
+
+    static func read(in paragraph: NSAttributedString) -> Self? {
+        guard paragraph.length > 0,
+              paragraph.attribute(NativeRichTextNoteFormatting.listKey, at: 0, effectiveRange: nil) as? Bool == true else {
+            return nil
+        }
+        return read(paragraph.string)
+    }
+
+    static func read(_ text: String) -> Self? {
+        for symbol in oldBullets where text.hasPrefix(symbol) {
+            if let gap = text.dropFirst(symbol.count).first, gap == " " || gap == "\t" || gap == "\u{00A0}" {
+                return Self(kind: .bullet, prefix: symbol + String(gap))
+            }
+        }
+        let source = text as NSString
+        guard let match = numberExpression?.firstMatch(in: text, range: NSRange(location: 0, length: source.length)),
+              let number = Int(source.substring(with: match.range(at: 1))) else { return nil }
+        return Self(kind: .number(number), prefix: source.substring(with: match.range))
+    }
+
+    static func apply(_ kind: Kind, to paragraph: NSMutableAttributedString, oldMarker: NoteListMarker?) {
+        let oldStyle = paragraph.length > 0
+            ? paragraph.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            : nil
+        let previousFirstIndent = oldStyle?.firstLineHeadIndent ?? 0
+        let wasHanging = ((oldStyle?.headIndent ?? 0) - previousFirstIndent) >= 19
+        let base = max(0, previousFirstIndent - (wasHanging ? NativeRichTextNoteFormatting.markerInset : 0))
+        let offset = oldMarker?.prefix.utf16.count ?? 0
+        if offset > 0 { paragraph.deleteCharacters(in: NSRange(location: 0, length: offset)) }
+        let previousAttributes = paragraph.length > 0 ? paragraph.attributes(at: 0, effectiveRange: nil) : [:]
+        var markerAttributes = NativeRichTextNoteFormatting.plainAttributes(from: previousAttributes)
+        let size = kind == .bullet ? 14.0 : RichTextMetrics.bodySize
+        let markerFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+        markerAttributes[.font] = markerFont
+        markerAttributes[.foregroundColor] = UIColor.label
+        markerAttributes.removeValue(forKey: .link)
+        markerAttributes.removeValue(forKey: .backgroundColor)
+        markerAttributes.removeValue(forKey: .underlineStyle)
+        markerAttributes.removeValue(forKey: .strikethroughStyle)
+        paragraph.insert(NSAttributedString(string: kind.prefix, attributes: markerAttributes), at: 0)
+
+        let style = (oldStyle?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        let markerWidth = (String(kind.prefix.dropLast()) as NSString).size(withAttributes: [.font: markerFont]).width
+        style.firstLineHeadIndent = base + NativeRichTextNoteFormatting.markerInset
+        style.headIndent = base + max(22, NativeRichTextNoteFormatting.markerInset + ceil(markerWidth) + 6)
+        style.tailIndent = 0
+        style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent, options: [:])]
+        style.textLists = []
+        style.paragraphSpacingBefore = 0
+        style.paragraphSpacing = 4
+        let range = NSRange(location: 0, length: paragraph.length)
+        paragraph.removeAttribute(NativeRichTextNoteFormatting.blockKey, range: range)
+        paragraph.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: range)
+        paragraph.addAttribute(NativeRichTextNoteFormatting.listKey, value: true, range: range)
+        paragraph.addAttribute(.paragraphStyle, value: style, range: range)
+    }
 }
 
 private enum RichTextCommandKind: Equatable {
-    case bold, italic, underline, strike, indent, outdent, numbers, todos, divider
-    case bullets(RichTextBulletStyle)
+    case bold, italic, underline, strike, indent, outdent, bullets, numbers, todos, divider
     case heading(RichTextHeading)
     case foreground(RichTextColor)
     case highlight
@@ -63,22 +200,6 @@ private enum RichTextCommandKind: Equatable {
     case internalLink(RichTextInternalLink)
     case link(String)
     case undo, redo
-}
-
-private enum RichTextBulletStyle: String, CaseIterable, Identifiable {
-    case filled = "实心圆点"
-    case hollow = "空心圆点"
-    case square = "方块"
-    case dash = "短横线"
-    var id: String { rawValue }
-    var prefix: String {
-        switch self {
-        case .filled: "• "
-        case .hollow: "◦ "
-        case .square: "▪︎ "
-        case .dash: "– "
-        }
-    }
 }
 
 struct RichTextInternalLink: Equatable, Identifiable {
@@ -275,32 +396,88 @@ private struct RichTextTableEditorRequest: Identifiable {
     let target: RichTextTableEditTarget
 }
 
-private final class NoteQuoteLayoutFragment: NSTextLayoutFragment {
-    private var ruleFrame: CGRect {
-        guard let first = textLineFragments.first else { return .null }
+private final class NoteParagraphLayoutFragment: NSTextLayoutFragment {
+    var showsPlaceholder = false
+
+    private var paragraph: NSAttributedString? { (textElement as? NSTextParagraph)?.attributedString }
+
+    private var drawingArea: CGRect {
         let lines = textLineFragments.reduce(CGRect.null) { $0.union($1.typographicBounds) }
-        guard !lines.isNull, !lines.isEmpty else { return .null }
-        return CGRect(
-            x: max(0, first.glyphOrigin.x - 11),
-            y: lines.minY,
-            width: 3,
-            height: max(4, lines.height)
-        )
+        guard !lines.isNull else { return .null }
+        let container = textLayoutManager?.textContainer
+        let width = (container?.size.width ?? 0) - layoutFragmentFrame.minX - (container?.lineFragmentPadding ?? 0)
+        let usableWidth = width.isFinite && width < 100_000 ? max(width, lines.width) : lines.width
+        return CGRect(x: 0, y: lines.minY, width: max(1, usableWidth), height: max(16, lines.height))
     }
 
     override var renderingSurfaceBounds: CGRect {
-        super.renderingSurfaceBounds.union(ruleFrame)
+        let area = drawingArea
+        return area.isNull ? super.renderingSurfaceBounds : super.renderingSurfaceBounds.union(area.insetBy(dx: -1, dy: -8))
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        super.draw(at: point, in: context)
-        let rect = ruleFrame.offsetBy(dx: point.x, dy: point.y)
-        guard !rect.isNull else { return }
+        let area = drawingArea
+        guard !area.isNull, let paragraph, paragraph.length > 0 else {
+            super.draw(at: point, in: context)
+            return
+        }
+        let attributes = paragraph.attributes(at: 0, effectiveRange: nil)
+        let block = NativeRichTextNoteFormatting.block(in: attributes)
+        let style = attributes[.paragraphStyle] as? NSParagraphStyle
+        let frame = area.offsetBy(dx: point.x, dy: point.y)
         context.saveGState()
-        context.setFillColor(UIColor.systemGray.cgColor)
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil))
-        context.fillPath()
+        if block?.includesCallout == true {
+            context.setStrokeColor(UIColor.separator.cgColor)
+            context.setLineWidth(0.8)
+            let outline = CGRect(x: frame.minX + 0.5, y: frame.minY - 6,
+                                 width: max(1, frame.width - 1), height: frame.height + 12)
+            context.addPath(CGPath(roundedRect: outline, cornerWidth: 8, cornerHeight: 8, transform: nil))
+            context.strokePath()
+        }
+        if block?.includesQuote == true {
+            let inset = block?.includesCallout == true ? NativeRichTextNoteFormatting.calloutInset : 0
+            let ruleX = max(inset, (textLineFragments.first?.glyphOrigin.x ?? 0) - NativeRichTextNoteFormatting.quoteIndent)
+            let quote = CGRect(x: frame.minX + ruleX, y: frame.minY + 1,
+                               width: 3, height: max(4, frame.height - 2))
+            context.setFillColor(UIColor.label.cgColor)
+            context.fill(quote)
+        }
+        if block == .divider {
+            context.setFillColor(UIColor.separator.cgColor)
+            context.fill(CGRect(x: frame.minX, y: frame.midY, width: frame.width, height: 0.75))
+        }
         context.restoreGState()
+        super.draw(at: point, in: context)
+
+        guard showsPlaceholder, block != .divider else { return }
+        let source = paragraph.string
+        let list = attributes[NativeRichTextNoteFormatting.listKey] != nil ? NoteListMarker.read(source) : nil
+        let text = list.map { String(source.dropFirst($0.prefix.count)) } ?? source
+        guard text.replacingOccurrences(of: NativeRichTextNoteFormatting.placeholder, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let caption = list != nil ? "项目" : (block?.includesQuote == true ? "空白引用" : "")
+        guard !caption.isEmpty else { return }
+        UIGraphicsPushContext(context)
+        (caption as NSString).draw(
+            at: CGPoint(x: frame.minX + (style?.headIndent ?? 0), y: frame.minY),
+            withAttributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize), .foregroundColor: UIColor.placeholderText]
+        )
+        UIGraphicsPopContext()
+    }
+
+    static func make(for element: NSTextElement, noteFormatting: Bool, editing: Bool) -> NSTextLayoutFragment {
+        guard noteFormatting, let paragraph = element as? NSTextParagraph, paragraph.attributedString.length > 0 else {
+            return NSTextLayoutFragment(textElement: element, range: nil)
+        }
+        let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
+        let hasEmptyListItem = editing && attributes[NativeRichTextNoteFormatting.listKey] != nil
+            && paragraph.attributedString.string.contains(NativeRichTextNoteFormatting.placeholder)
+        guard NativeRichTextNoteFormatting.block(in: attributes) != nil || hasEmptyListItem else {
+            return NSTextLayoutFragment(textElement: element, range: nil)
+        }
+        let fragment = NoteParagraphLayoutFragment(textElement: element, range: nil)
+        fragment.showsPlaceholder = editing
+        return fragment
     }
 }
 
@@ -615,10 +792,10 @@ struct NativeRichTextEditor: View {
                 formatButton(.underline, "underline", active: selectionState.isUnderlined)
                 if mode == .full {
                     colorMenu
-                    formatButton(.numbers, "list.number", active: selectionState.isNumbered)
-                    bulletMenu
-                    formatButton(.quote, "text.quote", active: selectionState.isQuoted)
-                    formatButton(.border, "rectangle", active: selectionState.isBordered)
+                    formatButton(.numbers, "list.number", active: selectionState.isNumbered, label: "有序列表")
+                    formatButton(.bullets, "list.bullet", active: selectionState.isBulleted, label: "无序列表")
+                    formatButton(.quote, "text.quote", active: selectionState.isQuoted, label: "引用")
+                    formatButton(.border, "rectangle", active: selectionState.isBordered, label: noteFormatting ? "标注" : "边框")
                     formatButton(.indent, "increase.indent")
                     formatButton(.outdent, "decrease.indent")
                 }
@@ -812,8 +989,11 @@ struct NativeRichTextEditor: View {
             }
             Divider()
             Button { run(.quote) } label: { Label("引用", systemImage: "text.quote") }
-            Button { run(.bullets(.filled)) } label: { Label("项目列表", systemImage: "list.bullet") }
-            Button { run(.numbers) } label: { Label("编号列表", systemImage: "list.number") }
+            Button { run(.bullets) } label: { Label("无序列表", systemImage: "list.bullet") }
+            Button { run(.numbers) } label: { Label("有序列表", systemImage: "list.number") }
+            if noteFormatting {
+                Button { run(.border) } label: { Label("标注", systemImage: "rectangle") }
+            }
             Button { run(.todos) } label: { Label("待办列表", systemImage: "checklist") }
             Button { run(.indent) } label: { Label("增加缩进", systemImage: "increase.indent") }
             Button { run(.outdent) } label: { Label("减少缩进", systemImage: "decrease.indent") }
@@ -852,18 +1032,6 @@ struct NativeRichTextEditor: View {
         .accessibilityLabel("颜色")
     }
 
-    private var bulletMenu: some View {
-        Menu {
-            ForEach(RichTextBulletStyle.allCases) { style in
-                Button { run(.bullets(style)) } label: { Text("\(style.prefix)\(style.rawValue)") }
-            }
-        } label: {
-            toolbarImage("list.bullet", active: selectionState.isBulleted)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("无序列表")
-    }
-
     private var toolbarDivider: some View {
         Divider().frame(height: 21).padding(.horizontal, 2)
     }
@@ -872,8 +1040,8 @@ struct NativeRichTextEditor: View {
         command = RichTextCommand(kind: kind)
     }
 
-    private func formatButton(_ kind: RichTextCommandKind, _ image: String, active: Bool = false, disabled: Bool = false) -> some View {
-        toolbarButton(image, active: active, disabled: disabled, label: nil) { run(kind) }
+    private func formatButton(_ kind: RichTextCommandKind, _ image: String, active: Bool = false, disabled: Bool = false, label: String? = nil) -> some View {
+        toolbarButton(image, active: active, disabled: disabled, label: label) { run(kind) }
     }
 
     private func toolbarButton(_ image: String, active: Bool = false, disabled: Bool = false, label: String?, action: @escaping () -> Void) -> some View {
@@ -1213,12 +1381,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
             textLayoutFragmentFor location: any NSTextLocation,
             in textElement: NSTextElement
         ) -> NSTextLayoutFragment {
-            guard parent.noteFormatting,
-                  let paragraph = textElement as? NSTextParagraph,
-                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else {
-                return NSTextLayoutFragment(textElement: textElement, range: nil)
-            }
-            return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
+            NoteParagraphLayoutFragment.make(for: textElement, noteFormatting: parent.noteFormatting, editing: false)
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -1815,6 +1978,7 @@ private final class RichTextPasteTextView: UITextView {
     var copyStructuredSelection: ((UITextView) -> Bool)?
     var onLayout: ((UITextView) -> Void)?
     var onBoundsChange: ((UITextView) -> Void)?
+    var onBackspace: ((UITextView) -> Bool)?
     var focusOnceAttached: (() -> Void)?
     private var lastReportedBoundsSize: CGSize?
 
@@ -1838,6 +2002,11 @@ private final class RichTextPasteTextView: UITextView {
     override func paste(_ sender: Any?) {
         if onPaste?(self) == true { return }
         super.paste(sender)
+    }
+
+    override func deleteBackward() {
+        if onBackspace?(self) == true { return }
+        super.deleteBackward()
     }
 
     override func copy(_ sender: Any?) {
@@ -1975,6 +2144,9 @@ private struct RichTextTextView: UIViewRepresentable {
             coordinator?.copyFlowchartSelection(textView) ?? false
         }
         view.delegate = context.coordinator
+        view.onBackspace = { [weak coordinator = context.coordinator] textView in
+            coordinator?.handleNoteBackspace(in: textView) ?? false
+        }
         view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.onLayout = { [weak coordinator = context.coordinator] textView in
             coordinator?.updateNativeTableWidths(in: textView)
@@ -2236,12 +2408,7 @@ private struct RichTextTextView: UIViewRepresentable {
             textLayoutFragmentFor location: any NSTextLocation,
             in textElement: NSTextElement
         ) -> NSTextLayoutFragment {
-            guard parent.noteFormatting,
-                  let paragraph = textElement as? NSTextParagraph,
-                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else {
-                return NSTextLayoutFragment(textElement: textElement, range: nil)
-            }
-            return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
+            NoteParagraphLayoutFragment.make(for: textElement, noteFormatting: parent.noteFormatting, editing: true)
         }
 
         func setPublishedHTML(_ html: String) {
@@ -2570,6 +2737,11 @@ private struct RichTextTextView: UIViewRepresentable {
             }
             guard !isLocked else { return false }
             if textView.markedTextRange != nil { return true }
+            if parent.noteFormatting {
+                if text.isEmpty, textView.selectedRange.length == 0,
+                   NSMaxRange(range) == textView.selectedRange.location, handleNoteBackspace(in: textView) { return false }
+                if text == "\n", handleNoteReturn(in: textView, range: range) { return false }
+            }
             if text.isEmpty, range.length == 1, removeEmptyListPrefixBeforeBackspace(in: textView, range: range) {
                 return false
             }
@@ -2577,7 +2749,8 @@ private struct RichTextTextView: UIViewRepresentable {
             let source = textView.text as NSString
             let lineRange = source.lineRange(for: NSRange(location: range.location, length: 0))
             let line = source.substring(with: lineRange).trimmingCharacters(in: .newlines)
-            guard let list = listPrefix(in: line) else { return true }
+            guard (!parent.noteFormatting || line.hasPrefix("☐ ")),
+                  let list = listPrefix(in: line) else { return true }
             let prefix = list.next
             let content = String(line.dropFirst(list.current.count))
             if content.isEmpty {
@@ -2593,15 +2766,276 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func listPrefix(in line: String) -> (current: String, next: String)? {
-            for style in RichTextBulletStyle.allCases where line.hasPrefix(style.prefix) {
-                return (style.prefix, style.prefix)
+            if let marker = NoteListMarker.read(line) {
+                if marker.kind == .bullet { return (marker.prefix, marker.prefix) }
+                let next = marker.kind.next.prefix.replacingOccurrences(of: "\t", with: " ")
+                return (marker.prefix, next)
             }
             if line.hasPrefix("☐ ") { return ("☐ ", "☐ ") }
-            guard let match = line.range(of: #"^(\d+)\.\s"#, options: .regularExpression) else { return nil }
-            let current = String(line[match])
-            let digits = current.prefix { $0.isNumber }
-            guard let number = Int(digits) else { return nil }
-            return (current, "\(number + 1). ")
+            return nil
+        }
+
+        private enum NoteParagraphCommand: Equatable {
+            case bullets, numbers, quote, callout
+        }
+
+        private func noteParagraphRange(in view: UITextView, selection: NSRange) -> NSRange {
+            let source = view.textStorage.string as NSString
+            if selection.location == source.length, selection.length == 0,
+               source.length == 0 || [10, 13, 0x2029].contains(source.character(at: source.length - 1)) {
+                return selection
+            }
+            return source.paragraphRange(for: selection)
+        }
+
+        private func noteTextWithoutPlaceholder(_ text: String) -> String {
+            text.replacingOccurrences(of: NativeRichTextNoteFormatting.placeholder, with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func noteAttributes(
+            in text: NSAttributedString, view: UITextView, after marker: NoteListMarker? = nil
+        ) -> [NSAttributedString.Key: Any] {
+            let offset = marker?.prefix.utf16.count ?? 0
+            return offset < text.length ? text.attributes(at: offset, effectiveRange: nil) : view.typingAttributes
+        }
+
+        private func addNotePlaceholder(to text: NSMutableAttributedString, attributes: [NSAttributedString.Key: Any]) {
+            let insertion = NSAttributedString(
+                string: NativeRichTextNoteFormatting.placeholder,
+                attributes: NativeRichTextNoteFormatting.plainAttributes(from: attributes)
+            )
+            text.insert(insertion, at: 0)
+        }
+
+        private func clearNoteBlock(
+            in text: NSMutableAttributedString,
+            marker: NoteListMarker?,
+            remainingBlock: NativeRichTextNoteBlockKind? = nil,
+            attributes: [NSAttributedString.Key: Any]
+        ) {
+            if let marker { text.deleteCharacters(in: NSRange(location: 0, length: marker.prefix.utf16.count)) }
+            let placeholder = NativeRichTextNoteFormatting.placeholder
+            if text.string.contains(placeholder) {
+                text.mutableString.replaceOccurrences(
+                    of: placeholder, with: "", options: [], range: NSRange(location: 0, length: text.length)
+                )
+            }
+            if remainingBlock != nil, noteTextWithoutPlaceholder(text.string).isEmpty {
+                addNotePlaceholder(to: text, attributes: attributes)
+            }
+            NativeRichTextNoteFormatting.applyBlock(remainingBlock, to: text, range: NSRange(location: 0, length: text.length))
+        }
+
+        private func editNoteParagraphs(_ command: NoteParagraphCommand, view: UITextView, selection: NSRange) {
+            let target = noteParagraphRange(in: view, selection: selection)
+            let source = view.textStorage.attributedSubstring(from: target)
+            var paragraphs: [NSAttributedString] = []
+            RichTextTextView.enumerateParagraphRanges(in: source.string) { range, _ in
+                paragraphs.append(source.attributedSubstring(from: range))
+            }
+            if paragraphs.isEmpty { paragraphs = [source] }
+            let removesList = paragraphs.allSatisfy { paragraph in
+                guard let kind = NoteListMarker.read(in: paragraph)?.kind else { return false }
+                if command == .bullets { return kind == .bullet }
+                if command == .numbers, case .number = kind { return true }
+                return false
+            }
+            let replacement = NSMutableAttributedString(string: "")
+            var oldPrefixLength = 0
+            var newPrefixLength = 0
+            for (index, paragraph) in paragraphs.enumerated() {
+                let marker = NoteListMarker.read(in: paragraph)
+                let attributes = noteAttributes(in: paragraph, view: view, after: marker)
+                let block = NativeRichTextNoteFormatting.block(in: attributes)
+                var containsAttachment = false
+                paragraph.enumerateAttribute(.attachment, in: NSRange(location: 0, length: paragraph.length)) { value, _, stop in
+                    if value != nil { containsAttachment = true; stop.pointee = true }
+                }
+                guard !containsAttachment, block != .divider else { replacement.append(paragraph); continue }
+                let updated = NSMutableAttributedString(attributedString: paragraph)
+                var prefixLength = 0
+                switch command {
+                case .bullets, .numbers:
+                    if removesList {
+                        clearNoteBlock(in: updated, marker: marker, attributes: attributes)
+                    } else {
+                        if block != nil { clearNoteBlock(in: updated, marker: marker, attributes: attributes) }
+                        let currentMarker = block == nil ? marker : nil
+                        let body = currentMarker.map { String(updated.string.dropFirst($0.prefix.count)) } ?? updated.string
+                        if noteTextWithoutPlaceholder(body).isEmpty, !body.contains(NativeRichTextNoteFormatting.placeholder) {
+                            let offset = currentMarker?.prefix.utf16.count ?? 0
+                            let empty = NSMutableAttributedString(string: "")
+                            addNotePlaceholder(to: empty, attributes: attributes)
+                            updated.insert(empty, at: offset)
+                        }
+                        let kind: NoteListMarker.Kind = command == .bullets ? .bullet : .number(index + 1)
+                        NoteListMarker.apply(kind, to: updated, oldMarker: currentMarker)
+                        prefixLength = kind.prefix.utf16.count
+                    }
+                case .quote:
+                    let next: NativeRichTextNoteBlockKind? = switch block {
+                    case .quote: nil
+                    case .callout: .calloutQuote
+                    case .calloutQuote: .callout
+                    default: .quote
+                    }
+                    clearNoteBlock(in: updated, marker: marker, remainingBlock: next, attributes: attributes)
+                case .callout:
+                    let next: NativeRichTextNoteBlockKind? = switch block {
+                    case .callout: nil
+                    case .quote: .calloutQuote
+                    case .calloutQuote: .quote
+                    default: .callout
+                    }
+                    clearNoteBlock(in: updated, marker: marker, remainingBlock: next, attributes: attributes)
+                }
+                if index == 0 {
+                    oldPrefixLength = marker?.prefix.utf16.count ?? 0
+                    newPrefixLength = prefixLength
+                }
+                replacement.append(updated)
+            }
+            let newSelection: NSRange
+            if selection.length == 0 {
+                let offset = max(0, selection.location - target.location - oldPrefixLength) + newPrefixLength
+                newSelection = NSRange(location: target.location + min(offset, replacement.length), length: 0)
+            } else {
+                newSelection = NSRange(location: target.location, length: replacement.length)
+            }
+            _ = commitNoteEdit(replacement, in: target, selection: newSelection, view: view)
+        }
+
+        private func insertNoteDivider(in view: UITextView, selection: NSRange) {
+            let range = noteParagraphRange(in: view, selection: selection)
+            let paragraph = view.textStorage.attributedSubstring(from: range)
+            let attributes = NativeRichTextNoteFormatting.plainAttributes(from: noteAttributes(in: paragraph, view: view))
+            let marker = NoteListMarker.read(in: paragraph)
+            let content = marker.map { String(paragraph.string.dropFirst($0.prefix.count)) } ?? paragraph.string
+            let target = noteTextWithoutPlaceholder(content).isEmpty
+                ? range : NSRange(location: NSMaxRange(range), length: 0)
+            let divider = NSMutableAttributedString(string: "\(NativeRichTextNoteFormatting.placeholder)\n", attributes: attributes)
+            NativeRichTextNoteFormatting.applyBlock(.divider, to: divider, range: NSRange(location: 0, length: divider.length))
+            if target.location > range.location, paragraph.string.last?.isNewline != true {
+                divider.insert(NSAttributedString(string: "\n", attributes: noteAttributes(in: paragraph, view: view)), at: 0)
+            }
+            _ = commitNoteEdit(
+                divider, in: target, selection: NSRange(location: target.location + divider.length, length: 0),
+                view: view, typingAttributes: attributes
+            )
+        }
+
+        fileprivate func handleNoteBackspace(in view: UITextView) -> Bool {
+            guard parent.noteFormatting, view.markedTextRange == nil,
+                  connectedSession?.isInputLocked != true, inlineBlockEdit == nil,
+                  view.selectedRange.length == 0 else { return false }
+            let caret = view.selectedRange.location
+            let range = noteParagraphRange(in: view, selection: view.selectedRange)
+            let text = NSMutableAttributedString(attributedString: view.textStorage.attributedSubstring(from: range))
+            let marker = NoteListMarker.read(in: text)
+            let attributes = noteAttributes(in: text, view: view, after: marker)
+            let block = text.length > 0 ? NativeRichTextNoteFormatting.block(in: attributes) : nil
+            let bodyStart = range.location + (marker?.prefix.utf16.count ?? 0)
+            let body = String(text.string.dropFirst(marker?.prefix.count ?? 0))
+            if marker != nil || block != nil,
+               caret <= bodyStart || noteTextWithoutPlaceholder(body).isEmpty {
+                if block == .divider {
+                    return commitNoteEdit(NSAttributedString(string: ""), in: range, selection: NSRange(location: range.location, length: 0),
+                                          view: view, typingAttributes: NativeRichTextNoteFormatting.plainAttributes(from: attributes))
+                }
+                let remaining: NativeRichTextNoteBlockKind? = block == .calloutQuote ? .callout : nil
+                clearNoteBlock(in: text, marker: marker, remainingBlock: remaining, attributes: attributes)
+                return commitNoteEdit(
+                    text, in: range, selection: NSRange(location: range.location, length: 0), view: view,
+                    typingAttributes: remaining == nil && text.length == 0
+                        ? NativeRichTextNoteFormatting.plainAttributes(from: attributes) : nil
+                )
+            }
+            guard caret == range.location, caret > 0 else { return false }
+            let previous = noteParagraphRange(in: view, selection: NSRange(location: caret - 1, length: 1))
+            let previousAttributes = view.textStorage.attributes(at: previous.location, effectiveRange: nil)
+            guard NativeRichTextNoteFormatting.block(in: previousAttributes) == .divider else { return false }
+            return commitNoteEdit(NSAttributedString(string: ""), in: previous,
+                                  selection: NSRange(location: previous.location, length: 0), view: view,
+                                  typingAttributes: NativeRichTextNoteFormatting.plainAttributes(from: attributes))
+        }
+
+        private func handleNoteReturn(in view: UITextView, range: NSRange) -> Bool {
+            let paragraphRange = noteParagraphRange(in: view, selection: NSRange(location: range.location, length: 0))
+            guard paragraphRange.length > 0, NSMaxRange(range) <= NSMaxRange(paragraphRange) else { return false }
+            let paragraph = view.textStorage.attributedSubstring(from: paragraphRange)
+            let marker = NoteListMarker.read(in: paragraph)
+            let attributes = noteAttributes(in: paragraph, view: view, after: marker)
+            let block = NativeRichTextNoteFormatting.block(in: attributes)
+            guard marker != nil || (block != nil && block != .divider) else { return false }
+            let prefixLength = marker?.prefix.utf16.count ?? 0
+            let plain = NativeRichTextNoteFormatting.plainAttributes(from: attributes)
+            if noteTextWithoutPlaceholder(String(paragraph.string.dropFirst(marker?.prefix.count ?? 0))).isEmpty {
+                let cleared = NSMutableAttributedString(attributedString: paragraph)
+                clearNoteBlock(in: cleared, marker: marker, attributes: attributes)
+                return commitNoteEdit(cleared, in: paragraphRange,
+                                      selection: NSRange(location: paragraphRange.location, length: 0),
+                                      view: view, typingAttributes: plain)
+            }
+
+            let start = max(prefixLength, range.location - paragraphRange.location)
+            let end = max(start, NSMaxRange(range) - paragraphRange.location)
+            let first = NSMutableAttributedString(attributedString: paragraph.attributedSubstring(from: NSRange(location: 0, length: start)))
+            let second = NSMutableAttributedString(attributedString: paragraph.attributedSubstring(from: NSRange(location: end, length: paragraph.length - end)))
+            first.append(NSAttributedString(string: "\n", attributes: attributes))
+            let nextPrefix: Int
+            if let marker {
+                if noteTextWithoutPlaceholder(second.string).isEmpty, !second.string.contains(NativeRichTextNoteFormatting.placeholder) {
+                    addNotePlaceholder(to: second, attributes: attributes)
+                }
+                if let style = attributes[.paragraphStyle], second.length > 0 {
+                    second.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: second.length))
+                }
+                NoteListMarker.apply(marker.kind.next, to: second, oldMarker: nil)
+                nextPrefix = marker.kind.next.prefix.utf16.count
+            } else {
+                clearNoteBlock(in: second, marker: nil, attributes: attributes)
+                nextPrefix = 0
+            }
+            let caret = paragraphRange.location + first.length + nextPrefix
+            first.append(second)
+            var target = paragraphRange
+            if case let .number(number)? = marker?.kind {
+                let source = view.textStorage.string as NSString
+                let indent = (attributes[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent
+                var expected = number + 1
+                while NSMaxRange(target) < source.length {
+                    let nextRange = source.paragraphRange(for: NSRange(location: NSMaxRange(target), length: 0))
+                    let next = NSMutableAttributedString(attributedString: view.textStorage.attributedSubstring(from: nextRange))
+                    guard let nextMarker = NoteListMarker.read(in: next), nextMarker.kind == .number(expected),
+                          (next.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.firstLineHeadIndent == indent else { break }
+                    expected += 1
+                    NoteListMarker.apply(.number(expected), to: next, oldMarker: nextMarker)
+                    first.append(next)
+                    target.length += nextRange.length
+                }
+            }
+            return commitNoteEdit(first, in: target,
+                                  selection: NSRange(location: caret, length: 0), view: view,
+                                  typingAttributes: marker == nil ? plain : nil)
+        }
+
+        @discardableResult
+        private func commitNoteEdit(
+            _ replacement: NSAttributedString, in target: NSRange, selection: NSRange, view: UITextView,
+            typingAttributes: [NSAttributedString.Key: Any]? = nil
+        ) -> Bool {
+            guard replaceAttributed(replacement, in: target, view: view, preservesSelection: true) else { return false }
+            userEditRevision &+= 1
+            view.selectedRange = selection
+            if let typingAttributes { view.typingAttributes = typingAttributes }
+            else if selection.length == 0, selection.location < view.textStorage.length {
+                view.typingAttributes = view.textStorage.attributes(at: selection.location, effectiveRange: nil)
+            } else if selection.length == 0 {
+                view.typingAttributes = NativeRichTextNoteFormatting.plainAttributes(from: view.typingAttributes)
+            }
+            rememberSelection(selection)
+            return true
         }
 
         private func removeEmptyListPrefixBeforeBackspace(in view: UITextView, range: NSRange) -> Bool {
@@ -3294,15 +3728,28 @@ private struct RichTextTextView: UIViewRepresentable {
             case let .foreground(color): applyAttribute(.foregroundColor, value: color.uiColor, view: view, range: range)
             case .highlight: toggleAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.35), view: view, range: range)
             case let .paragraphHighlight(color): toggleParagraphHighlight(color, view: view, range: range)
-            case .quote: toggleQuote(view: view, range: range)
-            case .border: toggleBorder(view: view, range: range)
+            case .quote:
+                if parent.noteFormatting { editNoteParagraphs(.quote, view: view, selection: range); restoreSelection = false }
+                else { toggleQuote(view: view, range: range) }
+            case .border:
+                if parent.noteFormatting { editNoteParagraphs(.callout, view: view, selection: range); restoreSelection = false }
+                else { toggleBorder(view: view, range: range) }
             case .code: toggleCode(view: view, range: range)
             case .indent: changeIndent(18, view: view, range: range)
             case .outdent: changeIndent(-18, view: view, range: range)
-            case let .bullets(style): toggleParagraphPrefixes(style.prefix, view: view, range: range); restoreSelection = false
-            case .numbers: numberParagraphs(view: view, range: range); restoreSelection = false
+            case .bullets:
+                if parent.noteFormatting { editNoteParagraphs(.bullets, view: view, selection: range) }
+                else { toggleParagraphPrefixes("• ", view: view, range: range) }
+                restoreSelection = false
+            case .numbers:
+                if parent.noteFormatting { editNoteParagraphs(.numbers, view: view, selection: range) }
+                else { numberParagraphs(view: view, range: range) }
+                restoreSelection = false
             case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
-            case .divider: insertDivider(view: view, range: range); restoreSelection = false
+            case .divider:
+                if parent.noteFormatting { insertNoteDivider(in: view, selection: range) }
+                else { insertDivider(view: view, range: range) }
+                restoreSelection = false
             case let .table(table):
                 let result = upsertTable(table, view: view, target: tableEditTarget)
                 tableResult = result
@@ -3877,7 +4324,16 @@ private struct RichTextTextView: UIViewRepresentable {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
             view.textStorage.enumerateAttribute(.paragraphStyle, in: paragraphRange) { value, subrange, _ in
                 let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-                style.headIndent = max(0, style.headIndent + delta); style.firstLineHeadIndent = max(0, style.firstLineHeadIndent + delta)
+                if parent.noteFormatting,
+                   view.textStorage.attribute(NativeRichTextNoteFormatting.listKey, at: subrange.location, effectiveRange: nil) != nil {
+                    let first = max(NativeRichTextNoteFormatting.markerInset, style.firstLineHeadIndent + delta)
+                    style.headIndent += first - style.firstLineHeadIndent
+                    style.firstLineHeadIndent = first
+                    style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent, options: [:])]
+                } else {
+                    style.headIndent = max(0, style.headIndent + delta)
+                    style.firstLineHeadIndent = max(0, style.firstLineHeadIndent + delta)
+                }
                 view.textStorage.addAttribute(.paragraphStyle, value: style, range: subrange)
             }
         }
@@ -3890,10 +4346,6 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func toggleQuote(view: UITextView, range: NSRange) {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
-            if parent.noteFormatting {
-                toggleNoteQuote(view: view, range: range, paragraphRange: paragraphRange)
-                return
-            }
             let current: NSParagraphStyle? = if view.attributedText.length > 0 {
                 view.attributedText.attribute(.paragraphStyle, at: min(paragraphRange.location, view.attributedText.length - 1), effectiveRange: nil) as? NSParagraphStyle
             } else {
@@ -3915,50 +4367,6 @@ private struct RichTextTextView: UIViewRepresentable {
                 view.textStorage.removeAttribute(.foregroundColor, range: paragraphRange)
             } else {
                 view.textStorage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: paragraphRange)
-            }
-        }
-
-        private func toggleNoteQuote(view: UITextView, range: NSRange, paragraphRange: NSRange) {
-            let location = min(paragraphRange.location, max(0, view.attributedText.length - 1))
-            let attributes = view.attributedText.length > 0
-                ? view.attributedText.attributes(at: location, effectiveRange: nil)
-                : view.typingAttributes
-            let isQuoted = NativeRichTextNoteFormatting.isQuoted(attributes)
-            let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            style.headIndent = isQuoted ? 0 : NativeRichTextNoteFormatting.quoteIndent
-            style.firstLineHeadIndent = style.headIndent
-            style.paragraphSpacingBefore = 0
-            style.paragraphSpacing = isQuoted ? 0 : 5
-            if paragraphRange.length == 0 {
-                var typing = view.typingAttributes
-                typing[.paragraphStyle] = style
-                if isQuoted { typing.removeValue(forKey: NativeRichTextNoteFormatting.quoteKey) }
-                else {
-                    typing[NativeRichTextNoteFormatting.quoteKey] = true
-                    if NativeRichTextNoteFormatting.isNeutralBackground(typing[.backgroundColor]) {
-                        typing.removeValue(forKey: .backgroundColor)
-                    }
-                }
-                view.typingAttributes = typing
-            } else {
-                view.textStorage.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
-                if isQuoted {
-                    view.textStorage.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
-                } else {
-                    view.textStorage.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
-                    NativeRichTextNoteFormatting.removeNeutralQuoteBackground(in: view.textStorage, range: paragraphRange)
-                }
-            }
-            if isQuoted {
-                var legacyQuoteColorRanges: [NSRange] = []
-                view.textStorage.enumerateAttribute(.foregroundColor, in: paragraphRange) { value, subrange, _ in
-                    if (value as? UIColor)?.isEqual(UIColor.secondaryLabel) == true {
-                        legacyQuoteColorRanges.append(subrange)
-                    }
-                }
-                for subrange in legacyQuoteColorRanges {
-                    view.textStorage.removeAttribute(.foregroundColor, range: subrange)
-                }
             }
         }
 
@@ -4415,6 +4823,10 @@ private struct RichTextTextView: UIViewRepresentable {
             } else {
                 .body
             }
+            let listKind = !parent.noteFormatting || attributes[NativeRichTextNoteFormatting.listKey] as? Bool == true
+                ? NoteListMarker.read(currentLine)?.kind : nil
+            let isNumbered: Bool
+            if case .number? = listKind { isNumbered = true } else { isNumbered = false }
             let state = RichTextSelectionState(
                 isBold: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true },
                 isItalic: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true },
@@ -4425,11 +4837,14 @@ private struct RichTextTextView: UIViewRepresentable {
                     return self.everyAttribute(in: stateRange, view: view) { $0[.backgroundColor] != nil }
                 } ?? false,
                 isQuoted: everyAttribute(in: stateRange, view: view) {
-                    NativeRichTextNoteFormatting.isQuoted($0) || (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22
+                    if parent.noteFormatting { return NativeRichTextNoteFormatting.block(in: $0)?.includesQuote == true }
+                    return NativeRichTextNoteFormatting.isQuoted($0) || (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22
                 },
-                isBordered: abs((paragraph?.headIndent ?? 0) - 10) < 0.5 && abs((paragraph?.tailIndent ?? 0) + 10) < 0.5,
-                isBulleted: RichTextBulletStyle.allCases.contains { currentLine.hasPrefix($0.prefix) },
-                isNumbered: currentLine.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil,
+                isBordered: parent.noteFormatting
+                    ? NativeRichTextNoteFormatting.block(in: attributes)?.includesCallout == true
+                    : abs((paragraph?.headIndent ?? 0) - 10) < 0.5 && abs((paragraph?.tailIndent ?? 0) + 10) < 0.5,
+                isBulleted: listKind == .bullet,
+                isNumbered: isNumbered,
                 isCode: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
                 heading: heading,
                 foreground: RichTextColor.allCases.first(where: { foreground?.isEqual($0.uiColor) == true }) ?? .primary,
@@ -4440,7 +4855,11 @@ private struct RichTextTextView: UIViewRepresentable {
             lastQueuedSelectionState = state
             DispatchQueue.main.async {
                 guard self.parent.selectionState != state else { return }
-                self.parent.selectionState = state
+                if self.parent.noteFormatting && !UIAccessibility.isReduceMotionEnabled {
+                    withAnimation(.easeOut(duration: 0.14)) { self.parent.selectionState = state }
+                } else {
+                    self.parent.selectionState = state
+                }
             }
         }
 
@@ -4481,7 +4900,14 @@ private struct RichTextTextView: UIViewRepresentable {
         let noteSource = noteFormatting
             ? value.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\u{2028}", options: .regularExpression)
             : value
-        let source = !noteSource.contains("<") ? (NativeRichTextMarkdown.htmlIfMarkdown(noteSource) ?? noteSource) : noteSource
+        let markup = !noteSource.contains("<") ? (NativeRichTextMarkdown.htmlIfMarkdown(noteSource) ?? noteSource) : noteSource
+        let source = noteFormatting
+            ? markup.replacingOccurrences(
+                of: #"(?i)<hr\b[^>]*>"#,
+                with: "<p data-note-block=\"divider\">\(NativeRichTextNoteFormatting.placeholder)</p>",
+                options: .regularExpression
+            )
+            : markup
         if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
@@ -4537,7 +4963,8 @@ private struct RichTextTextView: UIViewRepresentable {
             result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
         }
 
-        if let sourceHTML,
+        let hasSavedBlockMetadata = paragraphMetadata?.allSatisfy { $0?.isListItem != nil } == true
+        if !hasSavedBlockMetadata, let sourceHTML,
            let expression = try? NSRegularExpression(pattern: #"(?is)<blockquote\b[^>]*>(.*?)</blockquote\s*>"#) {
             let sourceNSString = sourceHTML as NSString
             let matches = expression.matches(in: sourceHTML, range: NSRange(location: 0, length: sourceNSString.length))
@@ -4610,10 +5037,10 @@ private struct RichTextTextView: UIViewRepresentable {
                 hasContent: paragraphContent
             )
             : paragraphStyles
-        for index in paragraphRanges.indices {
+        for index in paragraphRanges.indices.reversed() {
             let paragraphRange = paragraphRanges[index]
             guard paragraphRange.location < result.length else { continue }
-            let quoted = paragraphQuotes[index]
+            let quoted = metadataRows[index]?.blockKind?.includesQuote ?? paragraphQuotes[index]
             let cleaned = normalizedStyles[index]
             let style = (result.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if let saved = metadataRows[index]?.versionedLayout {
@@ -4653,6 +5080,57 @@ private struct RichTextTextView: UIViewRepresentable {
                 result.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
             }
             result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+            let attributes = result.attributes(at: paragraphRange.location, effectiveRange: nil)
+            let content = sourceText.substring(with: paragraphRange)
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            var block = metadataRows[index]?.blockKind ?? NativeRichTextNoteFormatting.block(in: attributes)
+            if block == nil {
+                if trimmed.hasPrefix("────────"), trimmed.allSatisfy({ $0 == "─" }) {
+                    block = .divider
+                } else if metadataRows[index]?.isListItem == nil,
+                          abs(style.headIndent - 10) < 0.5, abs(style.tailIndent + 10) < 0.5 {
+                    block = .callout
+                }
+            }
+            if let block {
+                if block != .divider && trimmed.isEmpty {
+                    result.insert(NSAttributedString(string: NativeRichTextNoteFormatting.placeholder, attributes: attributes),
+                                  at: paragraphRange.location)
+                    NativeRichTextNoteFormatting.applyBlock(
+                        block, to: result, range: NSRange(location: paragraphRange.location, length: paragraphRange.length + 1)
+                    )
+                } else if block == .divider {
+                    let newline = String(content.reversed().prefix(while: \.isNewline).reversed())
+                    let isDividerContent = trimmed.allSatisfy { $0 == "─" || $0 == "\u{200B}" }
+                    guard isDividerContent else {
+                        NativeRichTextNoteFormatting.applyBlock(nil, to: result, range: paragraphRange)
+                        continue
+                    }
+                    let replacement = NSAttributedString(string: NativeRichTextNoteFormatting.placeholder + newline, attributes: attributes)
+                    result.replaceCharacters(in: paragraphRange, with: replacement)
+                    NativeRichTextNoteFormatting.applyBlock(
+                        block, to: result, range: NSRange(location: paragraphRange.location, length: replacement.length)
+                    )
+                } else {
+                    NativeRichTextNoteFormatting.applyBlock(block, to: result, range: paragraphRange)
+                }
+            } else if metadataRows[index]?.isListItem != false,
+                      let marker = NoteListMarker.read(content)
+                        ?? (attributes[NativeRichTextNoteFormatting.listKey] != nil && content.hasPrefix("- ")
+                            ? NoteListMarker(kind: .bullet, prefix: "- ") : nil) {
+                let paragraph = NSMutableAttributedString(attributedString: result.attributedSubstring(from: paragraphRange))
+                let body = content.dropFirst(marker.prefix.count)
+                if body.allSatisfy(\.isWhitespace) {
+                    var bodyAttributes = attributes
+                    bodyAttributes[.font] = UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
+                    paragraph.insert(
+                        NSAttributedString(string: NativeRichTextNoteFormatting.placeholder, attributes: bodyAttributes),
+                        at: marker.prefix.utf16.count
+                    )
+                }
+                NoteListMarker.apply(marker.kind, to: paragraph, oldMarker: marker)
+                result.replaceCharacters(in: paragraphRange, with: paragraph)
+            }
         }
         return result.copy() as? NSAttributedString ?? result
     }
@@ -4696,7 +5174,7 @@ private struct RichTextTextView: UIViewRepresentable {
             paragraphContent.append(!contents.isEmpty)
             paragraphQuotes.append(NativeRichTextNoteFormatting.isQuoted(attributes))
             paragraphLists.append(attributes[NativeRichTextNoteFormatting.listKey] as? Bool == true)
-            preservesParagraphLayout.append(hasAttachment)
+            preservesParagraphLayout.append(hasAttachment || NativeRichTextNoteFormatting.block(in: attributes) != nil)
         }
 
         let metadataRows: [NativeRichTextNoteParagraphHTMLMetadata?]
@@ -4795,7 +5273,8 @@ private struct RichTextTextView: UIViewRepresentable {
         let targetText = textView.attributedText.string as NSString
         guard targetText.length > 0 else { return source }
 
-        func paragraphContext(at location: Int) -> (style: NSParagraphStyle?, quoted: Bool, hasPrefix: Bool, hasSuffix: Bool) {
+        typealias ParagraphContext = (style: NSParagraphStyle?, block: NativeRichTextNoteBlockKind?, hasPrefix: Bool, hasSuffix: Bool)
+        func paragraphContext(at location: Int) -> ParagraphContext {
             let probe = min(max(0, location), targetText.length - 1)
             var paragraphStart = 0
             var paragraphEnd = 0
@@ -4808,7 +5287,7 @@ private struct RichTextTextView: UIViewRepresentable {
             let attributes = textView.attributedText.attributes(at: probe, effectiveRange: nil)
             return (
                 attributes[.paragraphStyle] as? NSParagraphStyle,
-                attributes[NativeRichTextNoteFormatting.quoteKey] as? Bool == true,
+                NativeRichTextNoteFormatting.block(in: attributes),
                 hasPrefix,
                 hasSuffix
             )
@@ -4823,13 +5302,18 @@ private struct RichTextTextView: UIViewRepresentable {
         guard paragraphs.count > 0 else { return source }
         let result = NSMutableAttributedString(attributedString: source)
 
-        func apply(_ context: (style: NSParagraphStyle?, quoted: Bool, hasPrefix: Bool, hasSuffix: Bool), to paragraphRange: NSRange) {
+        func apply(_ context: ParagraphContext, to paragraphRange: NSRange) {
             guard paragraphRange.length > 0, paragraphRange.location < result.length,
                   context.hasPrefix || context.hasSuffix else { return }
             if let style = context.style {
                 result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
             }
-            if context.quoted {
+            if let block = context.block {
+                result.addAttribute(NativeRichTextNoteFormatting.blockKey, value: block.rawValue, range: paragraphRange)
+            } else {
+                result.removeAttribute(NativeRichTextNoteFormatting.blockKey, range: paragraphRange)
+            }
+            if context.block?.includesQuote == true {
                 result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
             } else {
                 result.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
@@ -5132,8 +5616,9 @@ private struct RichTextTextView: UIViewRepresentable {
             guard paragraphEnd > cursor else { break }
             let paragraphRange = NSRange(location: paragraphStart, length: paragraphEnd - paragraphStart)
             let contentRange = NSRange(location: paragraphStart, length: max(0, contentsEnd - paragraphStart))
-            let quoted = NativeRichTextNoteFormatting.isQuoted(value, at: paragraphStart)
             let paragraphAttributes = value.attributes(at: paragraphStart, effectiveRange: nil)
+            let block = NativeRichTextNoteFormatting.block(in: paragraphAttributes)
+            let quoted = block?.includesQuote == true
             let paragraphStyle = paragraphAttributes[.paragraphStyle] as? NSParagraphStyle ?? NSParagraphStyle.default
             let paragraphFontSize = (paragraphAttributes[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
             let headingLevel = noteHeadingLevel(in: value, range: contentRange)
@@ -5161,7 +5646,9 @@ private struct RichTextTextView: UIViewRepresentable {
                     headIndent: Double(paragraphStyle.headIndent),
                     tailIndent: Double(paragraphStyle.tailIndent)
                 ),
-                to: body
+                to: body,
+                blockKind: block,
+                isListItem: paragraphAttributes[NativeRichTextNoteFormatting.listKey] as? Bool == true
             )
             if quoted && !isInsideQuote { output += "<blockquote>" }
             if !quoted && isInsideQuote { output += "</blockquote>" }

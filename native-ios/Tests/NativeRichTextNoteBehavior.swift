@@ -13,6 +13,7 @@ enum NativeRichTextNoteBehavior {
         verifyDefaultAndExplicitParagraphSpacing()
         verifyParagraphIndentRoundTripMetadata()
         verifyVersionedParagraphLayoutMetadata()
+        verifyNoteBlockMetadataRoundTrip()
         verifyPastedParagraphSpacingPolicy()
         verifyExactParagraphPairing()
         verifyListHTMLRecovery()
@@ -231,6 +232,22 @@ enum NativeRichTextNoteBehavior {
         let external = NativeRichTextNoteParagraphHTMLPolicy.metadata(in: "<p style=\"margin-top: 2pt; margin-bottom: 5px\">来源段落</p>")
         precondition(external.count == 1 && external[0].hasExplicitSpacing, "inline HTML margins must be recognized as explicit spacing")
         precondition(external[0].cssSpacing == .some(NativeRichTextNoteParagraphHTMLSpacing(before: 2, after: 3.75)), "CSS pt and px margins must map to point spacing")
+    }
+
+    private static func verifyNoteBlockMetadataRoundTrip() {
+        let style = NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 8, spacingAfter: 8, lineSpacing: 0, fontSize: 16)
+        let kinds: [NativeRichTextNoteBlockKind?] = [nil, .quote, .callout, .calloutQuote, .divider]
+        let html = kinds.enumerated().map { index, kind in
+            NativeRichTextNoteParagraphHTMLPolicy.applying(
+                style, to: "<p>\(index)</p>", blockKind: kind, isListItem: index == 0
+            )
+        }.joined()
+        let metadata = NativeRichTextNoteParagraphHTMLPolicy.metadata(in: html)
+        precondition(metadata.map(\.blockKind) == kinds)
+        precondition(metadata.map(\.isListItem) == [true, false, false, false, false])
+        precondition(metadata.allSatisfy { $0.versionedLayout == style })
+        let legacy = NativeRichTextNoteParagraphHTMLPolicy.metadata(in: "<blockquote><p>旧引用</p></blockquote>")
+        precondition(legacy.count == 1 && legacy[0].blockKind == nil && legacy[0].isListItem == nil)
     }
 
     private static func verifyPastedParagraphSpacingPolicy() {

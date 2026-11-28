@@ -16,12 +16,21 @@ struct NativeRichTextNoteParagraphHTMLIndent: Equatable, Sendable {
     var tailIndent: Double
 }
 
+enum NativeRichTextNoteBlockKind: String, Sendable {
+    case quote, callout, calloutQuote, divider
+
+    var includesQuote: Bool { self == .quote || self == .calloutQuote }
+    var includesCallout: Bool { self == .callout || self == .calloutQuote }
+}
+
 struct NativeRichTextNoteParagraphHTMLMetadata: Equatable, Sendable {
     var tagName: String
     var headingLevel: Int?
     var versionedLayout: NativeRichTextNoteParagraphHTMLStyle?
     var hasExplicitSpacing: Bool
     var cssSpacing: NativeRichTextNoteParagraphHTMLSpacing? = nil
+    var blockKind: NativeRichTextNoteBlockKind? = nil
+    var isListItem: Bool? = nil
 }
 
 struct NativeRichTextNoteParagraphHTMLSpacing: Equatable, Sendable {
@@ -79,7 +88,15 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
                 headingLevel: headingLevel,
                 versionedLayout: layout,
                 hasExplicitSpacing: hasExplicitSpacing,
-                cssSpacing: cssSpacing
+                cssSpacing: cssSpacing,
+                blockKind: attribute("data-note-block", in: attributes).flatMap(NativeRichTextNoteBlockKind.init(rawValue:)),
+                isListItem: attribute("data-note-list", in: attributes).flatMap {
+                    switch $0 {
+                    case "1": true
+                    case "0": false
+                    default: nil
+                    }
+                }
             )
         }
     }
@@ -171,7 +188,12 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
         }
     }
 
-    static func applying(_ style: NativeRichTextNoteParagraphHTMLStyle, to html: String) -> String {
+    static func applying(
+        _ style: NativeRichTextNoteParagraphHTMLStyle,
+        to html: String,
+        blockKind: NativeRichTextNoteBlockKind? = nil,
+        isListItem: Bool? = nil
+    ) -> String {
         var declarations: [String] = []
         if style.spacingBefore.isFinite, style.spacingBefore > 0.01 {
             declarations.append("margin-top: \(style.spacingBefore)pt")
@@ -208,6 +230,8 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
         attributes.append("data-note-spacing-before=\"\(finiteOrZero(style.spacingBefore))\"")
         attributes.append("data-note-spacing-after=\"\(finiteOrZero(style.spacingAfter))\"")
         attributes.append("data-note-line-spacing=\"\(finiteOrZero(style.lineSpacing))\"")
+        if let blockKind { attributes.append("data-note-block=\"\(blockKind.rawValue)\"") }
+        if let isListItem { attributes.append("data-note-list=\"\(isListItem ? 1 : 0)\"") }
         if hasIndent {
             attributes.append("data-note-first-line-head-indent=\"\(style.firstLineHeadIndent)\"")
             attributes.append("data-note-head-indent=\"\(style.headIndent)\"")

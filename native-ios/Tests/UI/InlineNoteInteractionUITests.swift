@@ -61,6 +61,24 @@ final class InlineNoteInteractionUITests: XCTestCase {
     }
 
     @MainActor
+    func testBackspaceExitsEmptyListWithoutRemovingPreviousParagraph() {
+        continueAfterFailure = false
+        let app = openQuestionWithEmptyNote()
+        app.staticTexts["点击添加错题笔记"].tap()
+        let note = app.textViews.firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        note.typeText("甲\n")
+
+        let bullets = app.buttons["无序列表"].firstMatch
+        XCTAssertTrue(bullets.waitForExistence(timeout: 5))
+        bullets.tap()
+        XCTAssertTrue((note.value as? String)?.contains("•") == true)
+        note.typeText(XCUIKeyboardKey.delete.rawValue)
+        note.typeText("乙")
+        XCTAssertEqual(note.value as? String, "甲\n乙")
+    }
+
+    @MainActor
     func testSingleTapMovesNoteCaret() {
         continueAfterFailure = false
         let app = openQuestionWithEmptyNote()
