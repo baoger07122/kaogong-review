@@ -644,7 +644,7 @@ private struct ExamLinkedErrorsSection: View {
                                     .foregroundStyle(draft.linkedErrorIDs.contains(error.id) ? AppTheme.accent : .secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(error.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(1)
-                                    Text([error.subject, error.moduleDisplayTitle].compactMap { $0 }.joined(separator: " · "))
+                                    Text(error.displayMetadata)
                                         .font(AppTheme.auxiliaryFont)
                                         .foregroundStyle(.secondary)
                                 }
@@ -722,6 +722,12 @@ private struct ExamLinkedErrorCandidate: Identifiable {
     let title: String
     let subject: String?
     let module: String?
+
+    var displayMetadata: String {
+        [subject, module.map { SubjectDefinition.moduleTitle($0, subject: subject) }]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
 }
 
 private struct ExamLinkedErrorProjection {
