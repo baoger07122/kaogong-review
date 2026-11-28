@@ -146,17 +146,15 @@ struct KnowledgePointManagerView: View {
         return kind == .errorCause ? [TagLibraryRepository.sharedQuantityCauseModule] + types : types
     }
 
-    private var supportsTagDisplaySettings: Bool {
-        (subject.name == "数量关系" || LibraryErrorTypeSubject(rawValue: subject.name) != nil)
-            && !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var tagDisplayScope: LibraryTagDisplayScope? {
+        guard kind.groupCategory != nil else { return nil }
+        return LibraryTagDisplayScope(subject: subject.name, module: module)
     }
-
-    private var tagDisplayScopeDescription: String { "\(subject.name) · \(module)" }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("标签按当前科目、模块和题型分别管理；录入错题时新增的标签会保存到对应范围。")
+                Text("标签展示按模块设置。下方标签按所选范围管理。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                 if let errorMessage {
@@ -170,20 +168,22 @@ struct KnowledgePointManagerView: View {
                         .foregroundStyle(AppTheme.success)
                 }
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 10) {
-                        subjectSelector
-                        moduleSelector
-                        if isTypedCatalogTag { verbalTypeSelector }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        subjectSelector
-                        moduleSelector
-                        if isTypedCatalogTag { verbalTypeSelector }
+                if subject.isFlat {
+                    subjectSelector
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            subjectSelector
+                            moduleSelector
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            subjectSelector
+                            moduleSelector
+                        }
                     }
                 }
 
-                if kind.groupCategory != nil, supportsTagDisplaySettings {
+                if tagDisplayScope != nil {
                     Button { showsTagDisplaySettings = true } label: {
                         HStack(spacing: 8) {
                             Text("标签展示")
@@ -201,6 +201,12 @@ struct KnowledgePointManagerView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("library-tag-display-settings")
+                }
+
+                if subject.isFlat {
+                    moduleSelector
+                } else if isTypedCatalogTag {
+                    verbalTypeSelector
                 }
 
                 if kind.groupCategory != nil {
@@ -423,12 +429,9 @@ struct KnowledgePointManagerView: View {
             Text(errorMessage ?? typeMoveInformation ?? "")
         }
         .overlay {
-            if showsTagDisplaySettings {
+            if showsTagDisplaySettings, let tagDisplayScope {
                 LibraryTagDisplaySettingsSheet(
-                    subject: subject.name,
-                    module: module,
-                    scopeDescription: tagDisplayScopeDescription,
-                    records: records,
+                    scope: tagDisplayScope,
                     onClose: { showsTagDisplaySettings = false }
                 )
             } else {

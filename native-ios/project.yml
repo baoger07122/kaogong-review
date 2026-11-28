@@ -71,6 +71,7 @@ targets:
       - Tests/Library/LibraryDoodleExitSessionTests.swift
       - Tests/Library/LibraryErrorEditAndNoteTests.swift
       - Tests/Library/JudgmentReasoningModuleTests.swift
+      - Tests/Library/LibraryTagDisplayPreferencesTests.swift
       - Sources/Features/Speed/SpeedAnimatedText.swift
     dependencies:
       - target: KaogongReviewNative

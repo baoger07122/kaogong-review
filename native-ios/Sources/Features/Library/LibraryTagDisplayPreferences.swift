@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import SwiftUI
-import SwiftData
 
 struct LibraryTagDisplaySettings: Codable, Equatable {
     var showsKnowledgePointAttribute = true
@@ -10,6 +9,46 @@ struct LibraryTagDisplaySettings: Codable, Equatable {
     var showsMistakeTagCardHeader = false
 
     static let defaults = LibraryTagDisplaySettings()
+}
+
+struct LibraryTagDisplayScope {
+    fileprivate static let quantity = Self(subject: "数量关系", moduleName: nil)
+
+    private let subject: String
+    private let module: String?
+
+    private init(subject: String, moduleName: String?) {
+        self.subject = subject
+        module = moduleName
+    }
+
+    init?(subject: String, module: String) {
+        let subject = SubjectModuleTitle.normalized(subject)
+        if subject == Self.quantity.subject {
+            self = .quantity
+            return
+        }
+
+        let module = SubjectModuleTitle.normalized(module)
+        guard LibraryErrorTypeSubject(rawValue: subject) != nil, !module.isEmpty else { return nil }
+        self.init(subject: subject, moduleName: module)
+    }
+
+    var title: String {
+        guard let module else { return subject }
+        return "\(subject) · \(SubjectDefinition.moduleTitle(module, subject: subject))"
+    }
+
+    fileprivate var storageKey: String {
+        "module:\(Self.keyPart(subject)):\(Self.keyPart(module ?? ""))"
+    }
+
+    private static func keyPart(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }
 
 final class LibraryTagDisplayPreferences: ObservableObject {
@@ -26,7 +65,7 @@ final class LibraryTagDisplayPreferences: ObservableObject {
     private let defaults: UserDefaults
     private var state: PersistedState
 
-    private init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         state = Self.loadState(defaults.data(forKey: Self.storageKey))
     }
@@ -37,7 +76,12 @@ final class LibraryTagDisplayPreferences: ObservableObject {
         }
 
         var typedSettingsByModule: [String: [LibraryTagDisplaySettings]] = [:]
+        let quantityTypeKeys = Set(decoded.quantityTypeIDsByName.values.map { "quantity-type:\($0)" })
         for (key, settings) in decoded.settingsByScope {
+            if quantityTypeKeys.contains(key) {
+                typedSettingsByModule[LibraryTagDisplayScope.quantity.storageKey, default: []].append(settings)
+                continue
+            }
             let parts = key.split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 4, parts[0] == "type" else { continue }
             typedSettingsByModule["module:\(parts[1]):\(parts[2])", default: []].append(settings)
@@ -50,73 +94,18 @@ final class LibraryTagDisplayPreferences: ObservableObject {
         return decoded
     }
 
-    func settings(
-        subject: String,
-        module: String,
-        records: [StoredRecord],
-        validQuantityTypes: Set<String>? = nil
-    ) -> LibraryTagDisplaySettings {
-        guard !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .defaults }
-
-        if subject == "数量关系" {
-            let availableTypes = validQuantityTypes ?? Set(QuantityQuestionTypeRepository.types(records: records))
-            guard availableTypes.contains(module),
-                  let id = state.quantityTypeIDsByName[quantityNameKey(module)] else { return .defaults }
-            return state.settingsByScope["quantity-type:\(id)"] ?? .defaults
-        }
-
-        guard LibraryErrorTypeSubject(rawValue: subject) != nil else { return .defaults }
-        return state.settingsByScope[moduleKey(subject: subject, module: module)] ?? .defaults
+    func settings(for scope: LibraryTagDisplayScope?) -> LibraryTagDisplaySettings {
+        guard let scope else { return .defaults }
+        return state.settingsByScope[scope.storageKey] ?? .defaults
     }
 
     func update(
         _ settings: LibraryTagDisplaySettings,
-        subject: String,
-        module: String,
-        records: [StoredRecord]
+        for scope: LibraryTagDisplayScope
     ) throws {
-        guard !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var next = state
-        if subject == "数量关系" {
-            guard QuantityQuestionTypeRepository.types(records: records).contains(module) else {
-                throw PersistenceError.invalidScope
-            }
-            let nameKey = quantityNameKey(module)
-            let id = next.quantityTypeIDsByName[nameKey] ?? UUID().uuidString
-            next.quantityTypeIDsByName[nameKey] = id
-            next.settingsByScope["quantity-type:\(id)"] = settings
-        } else {
-            guard LibraryErrorTypeSubject(rawValue: subject) != nil else { throw PersistenceError.invalidScope }
-            next.settingsByScope[moduleKey(subject: subject, module: module)] = settings
-        }
+        next.settingsByScope[scope.storageKey] = settings
         try persist(next)
-    }
-
-    func migrateQuantityTypeScope(from oldName: String, to newName: String?) throws {
-        var next = state
-        let oldKey = quantityNameKey(oldName)
-        guard let typeID = next.quantityTypeIDsByName.removeValue(forKey: oldKey) else { return }
-        if let newName {
-            next.quantityTypeIDsByName[quantityNameKey(newName)] = typeID
-        } else {
-            next.settingsByScope.removeValue(forKey: "quantity-type:\(typeID)")
-        }
-        try persist(next)
-    }
-
-    func persistedDataSnapshot() -> Data? {
-        defaults.data(forKey: Self.storageKey)
-    }
-
-    func restorePersistedData(_ data: Data?) {
-        if let data {
-            defaults.set(data, forKey: Self.storageKey)
-            state = Self.loadState(data)
-        } else {
-            defaults.removeObject(forKey: Self.storageKey)
-            state = PersistedState()
-        }
-        revision &+= 1
     }
 
     private func persist(_ next: PersistedState) throws {
@@ -135,45 +124,21 @@ final class LibraryTagDisplayPreferences: ObservableObject {
         revision &+= 1
     }
 
-    private func moduleKey(subject: String, module: String) -> String {
-        "module:\(keyPart(subject)):\(keyPart(module))"
-    }
-
-    private func quantityNameKey(_ name: String) -> String {
-        "quantity:\(keyPart(name))"
-    }
-
-    private func keyPart(_ value: String) -> String {
-        Data(value.utf8).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
     private enum PersistenceError: LocalizedError {
-        case invalidScope
         case writeFailed
 
-        var errorDescription: String? {
-            switch self {
-            case .invalidScope: return "当前模块范围已失效，请重新选择后再试。"
-            case .writeFailed: return "标签展示设置未能保存，原设置已保留。"
-            }
-        }
+        var errorDescription: String? { "标签展示设置未能保存，原设置已保留。" }
     }
 }
 
 struct LibraryTagDisplaySettingsSheet: View {
     @ObservedObject private var preferences = LibraryTagDisplayPreferences.shared
-    let subject: String
-    let module: String
-    let scopeDescription: String
-    let records: [StoredRecord]
+    let scope: LibraryTagDisplayScope
     let onClose: () -> Void
     @State private var errorMessage: String?
 
     private var settings: LibraryTagDisplaySettings {
-        preferences.settings(subject: subject, module: module, records: records)
+        preferences.settings(for: scope)
     }
 
     var body: some View {
@@ -188,7 +153,7 @@ struct LibraryTagDisplaySettingsSheet: View {
         ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("当前范围：\(scopeDescription)")
+                    Text("当前范围：\(scope.title)")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -314,12 +279,7 @@ struct LibraryTagDisplaySettingsSheet: View {
 
     private func save(_ updated: LibraryTagDisplaySettings) {
         do {
-            try preferences.update(
-                updated,
-                subject: subject,
-                module: module,
-                records: records
-            )
+            try preferences.update(updated, for: scope)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

@@ -2440,10 +2440,20 @@ struct LibraryRecordDetailView: View {
     }
 
     private var currentTagDisplaySettings: LibraryTagDisplaySettings {
-        tagDisplayPreferences.settings(
-            subject: activeSubject,
-            module: activeModule,
-            records: records
+        let storedSubject = [
+            displaysPreviousQuestionSnapshot ? nil : record?.subject,
+            object["subject"] as? String, activeSubject
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let storedModule = [
+            displaysPreviousQuestionSnapshot ? nil : record?.module,
+            object["module"] as? String, activeModule
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        return tagDisplayPreferences.settings(
+            for: LibraryTagDisplayScope(subject: storedSubject, module: storedModule)
         )
     }
 

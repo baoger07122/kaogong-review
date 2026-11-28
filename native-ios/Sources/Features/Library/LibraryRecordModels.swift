@@ -317,6 +317,17 @@ struct LibraryRecordSnapshot: Identifiable {
 
     var id: String { record.compoundID }
 
+    var usesSingleCardImagePreview: Bool {
+        Self.usesSingleCardImagePreview(
+            subject: SubjectModuleTitle.normalized(subject),
+            module: SubjectModuleTitle.normalized(module)
+        )
+    }
+
+    static func usesSingleCardImagePreview(subject: String, module: String) -> Bool {
+        subject == "数量关系" || (subject == "资料分析" && module == "综合题")
+    }
+
     init(
         record: StoredRecord,
         linkedWordNamesByID: [String: String] = [:],

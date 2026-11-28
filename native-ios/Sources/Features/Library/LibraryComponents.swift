@@ -411,6 +411,10 @@ private struct LibraryErrorRecordCard: View {
     let usesMemoryCardPresentation: Bool
     @State private var cardWidth: CGFloat = 0
 
+    private var measuresImageWidth: Bool {
+        !usesMemoryCardPresentation && !snapshot.imageValues.isEmpty && snapshot.usesSingleCardImagePreview
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if usesMemoryCardPresentation {
@@ -426,14 +430,14 @@ private struct LibraryErrorRecordCard: View {
             alignment: .leading
         )
         .background {
-            if isDataAnalysisComposite && !usesMemoryCardPresentation {
+            if measuresImageWidth {
                 GeometryReader { proxy in
                     Color.clear.preference(key: LibraryErrorCardWidthPreferenceKey.self, value: proxy.size.width)
                 }
             }
         }
         .onPreferenceChange(LibraryErrorCardWidthPreferenceKey.self) { width in
-            guard isDataAnalysisComposite, !usesMemoryCardPresentation else { return }
+            guard measuresImageWidth else { return }
             guard width > 0, abs(width - cardWidth) > 0.5 else { return }
             cardWidth = width
         }
@@ -544,23 +548,24 @@ private struct LibraryErrorRecordCard: View {
     @ViewBuilder
     private func images(showsImageCountHint: Bool) -> some View {
         if !snapshot.imageValues.isEmpty {
+            let usesSinglePreview = snapshot.usesSingleCardImagePreview
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(snapshot.imageValues.prefix(isDataAnalysisComposite ? 1 : 3).enumerated()), id: \.offset) { index, source in
+                ForEach(Array(snapshot.imageValues.prefix(usesSinglePreview ? 1 : 3).enumerated()), id: \.offset) { index, source in
                     HStack(spacing: 0) {
                         LibraryCardThumbnail(
                             source: source,
                             cacheKey: snapshot.imageIdentities.indices.contains(index)
                                 ? snapshot.imageIdentities[index] : "\(snapshot.id)-legacy-\(index)",
                             maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight,
-                            availableWidth: isDataAnalysisComposite && cardWidth > 0
+                            availableWidth: usesSinglePreview && cardWidth > 0
                                 ? max(1, cardWidth - 28) : nil,
-                            widthFraction: isDataAnalysisComposite && snapshot.imageWidthFractions.indices.contains(index)
+                            widthFraction: usesSinglePreview && snapshot.imageWidthFractions.indices.contains(index)
                                 ? snapshot.imageWidthFractions[index] : 1
                         )
                         Spacer(minLength: 0)
                     }
                 }
-                if showsImageCountHint, !isDataAnalysisComposite, snapshot.imageValues.count > 3 {
+                if showsImageCountHint, !usesSinglePreview, snapshot.imageValues.count > 3 {
                     Text("+\(snapshot.imageValues.count - 3) 张图片")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -1408,7 +1413,7 @@ struct LibraryMasonryGrid: View {
             sections.append(CGFloat(estimatedLineCount(record.dataAnalysisMaterialText, width: contentWidth, fontSize: 11.5, limit: 2)) * 15)
         }
         if !record.imageValues.isEmpty {
-            let imageCount = min(isDataAnalysisComposite ? 1 : 3, record.imageValues.count)
+            let imageCount = min(record.usesSingleCardImagePreview ? 1 : 3, record.imageValues.count)
             sections.append(CGFloat(imageCount) * cardSize.imageMaximumHeight * 0.72 + CGFloat(max(0, imageCount - 1)) * 8)
         }
         sections.append(CGFloat(titleLines) * 19)

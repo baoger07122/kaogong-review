@@ -516,9 +516,7 @@ private struct LibraryErrorAnalysisSection: View {
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
     private var tagDisplaySettings: LibraryTagDisplaySettings {
         tagDisplayPreferences.settings(
-            subject: draft.subject,
-            module: draft.module,
-            records: records
+            for: LibraryTagDisplayScope(subject: draft.subject, module: draft.module)
         )
     }
     private var quantityErrorCause: Binding<String> {

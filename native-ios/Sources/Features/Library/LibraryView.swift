@@ -919,7 +919,6 @@ struct LibraryView: View {
     private func snapshots(from scopedRecords: [StoredRecord]) -> [LibraryRecordSnapshot] {
         let wordNames = snapshotCache.wordNames(in: records)
         let examTitles = snapshotCache.examTitles(in: records)
-        let quantityTypes = Set(recordListCache.quantityTypes(records: records))
         return Array(scopedRecords.prefix(renderLimit)).map {
             snapshotCache.snapshot(
                 record: $0,
@@ -928,19 +927,14 @@ struct LibraryView: View {
                 reviewSource: scope.reviewSource,
                 sourceExamTitlesByID: examTitles,
                 knowledgePointNames: knowledgePointNames(for: $0),
-                tagDisplaySettings: tagDisplaySettings(
-                    for: $0,
-                    quantityTypes: quantityTypes
-                )
+                tagDisplaySettings: tagDisplaySettings(for: $0)
             )
         }
     }
 
-    private func tagDisplaySettings(
-        for record: StoredRecord,
-        quantityTypes: Set<String>
-    ) -> LibraryTagDisplaySettings {
-        let object = record.compatibilityIndexObject ?? [:]
+    private func tagDisplaySettings(for record: StoredRecord) -> LibraryTagDisplaySettings {
+        guard record.collection == "errors" else { return .defaults }
+        let object = record.indexObject ?? [:]
         let subject = [record.subject, object["subject"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
@@ -948,10 +942,7 @@ struct LibraryView: View {
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
         return tagDisplayPreferences.settings(
-            subject: subject,
-            module: module,
-            records: records,
-            validQuantityTypes: quantityTypes
+            for: LibraryTagDisplayScope(subject: subject, module: module)
         )
     }
 
@@ -971,6 +962,7 @@ struct LibraryView: View {
     private func includesQuestionImages(in record: StoredRecord) -> Bool {
         guard kind == .errors, record.collection == "errors" else { return false }
         let indexObject = record.indexObject ?? [:]
+        if (indexObject["imageCount"] as? NSNumber)?.intValue == 0 { return false }
         let subject = [record.subject, indexObject["subject"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -980,7 +972,7 @@ struct LibraryView: View {
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { SubjectModuleTitle.normalized($0) } ?? ""
         return (subject == "判断推理" && module == "图形推理")
-            || (subject == "资料分析" && module == "综合题")
+            || LibraryRecordSnapshot.usesSingleCardImagePreview(subject: subject, module: module)
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }
@@ -1022,7 +1014,7 @@ struct LibraryView: View {
             snapshotCache.snapshot(
                 record: record,
                 linkedWordNamesByID: linkedWordNames,
-                includeImages: includesQuestionImages(in: record),
+                includeImages: false,
                 reviewSource: scope.reviewSource,
                 sourceExamTitlesByID: examTitles,
                 knowledgePointNames: knowledgePointNames(for: record)
